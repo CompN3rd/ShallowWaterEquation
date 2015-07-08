@@ -26,3 +26,17 @@
 *.exe
 *.out
 *.app
+
+# output vtk files
+*.vtk
+
+# Visual Studio files
+*.log
+*.tlog
+*.pdb
+*.ilk
+*.idb
+
+# Visual Studio Project files
+*.sdf
+*.suo
