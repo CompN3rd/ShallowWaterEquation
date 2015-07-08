@@ -216,13 +216,16 @@ void SWE::computeFluxes()
 		for (int j = 0; j <= ny; j++)
 		{
 			float llf = computeLocalSV(i, j, 'x');
-			Fh[li(nx + 1, i, j)] = computeFlux(h[li(nx + 2, i, j)] * hu[li(nx + 2, i, j)], h[li(nx + 2, i + 1, j)] * hu[li(nx + 2, i + 1, j)], h[li(nx + 2, i, j)], h[li(nx + 2, i + 1, j)], llf);
-			Fhu[li(nx + 1, i, j)] = computeFlux(hu[li(nx + 2, i, j)] * hu[li(nx + 2, i, j)] + 0.5f * g * h[li(nx + 2, i, j)],
-				hu[li(nx + 2, i + 1, j)] * hu[li(nx + 2, i + 1, j)] + 0.5f * g * h[li(nx + 2, i + 1, j)],
+			//float llf = dx / dt;
+			Fh[li(nx + 1, i, j)] = computeFlux(hu[li(nx + 2, i, j)], hu[li(nx + 2, i + 1, j)], h[li(nx + 2, i, j)], h[li(nx + 2, i + 1, j)], llf);
+
+			Fhu[li(nx + 1, i, j)] = computeFlux(hu[li(nx + 2, i, j)] * hu[li(nx + 2, i, j)] / h[li(nx + 2, i, j)] + 0.5f * g * h[li(nx + 2, i, j)] * h[li(nx + 2, i, j)],
+				hu[li(nx + 2, i + 1, j)] * hu[li(nx + 2, i + 1, j)] / h[li(nx + 2, i + 1, j)] + 0.5f * g * h[li(nx + 2, i + 1, j)] * h[li(nx + 2, i + 1, j)],
 				hu[li(nx + 2, i, j)],
 				hu[li(nx + 2, i + 1, j)],
 				llf);
-			Fhv[li(nx + 1, i, j)] = computeFlux(hu[li(nx + 2, i, j)] * hv[li(nx + 2, i, j)], hu[li(nx + 2, i + 1, j)] * hv[li(nx + 2, i + 1, j)], hv[li(nx + 2, i, j)], hv[li(nx + 2, i + 1, j)], llf);
+
+			Fhv[li(nx + 1, i, j)] = computeFlux(hu[li(nx + 2, i, j)] * hv[li(nx + 2, i, j)] / h[li(nx + 2, i, j)], hu[li(nx + 2, i + 1, j)] * hv[li(nx + 2, i + 1, j)] / h[li(nx + 2, i + 1, j)], hv[li(nx + 2, i, j)], hv[li(nx + 2, i + 1, j)], llf);
 		}
 	}
 
@@ -233,10 +236,13 @@ void SWE::computeFluxes()
 		for (int i = 0; i <= nx; i++)
 		{
 			float llf = computeLocalSV(i, j, 'y');
-			Gh[li(nx + 1, i, j)] = computeFlux(h[li(nx + 2, i, j)] * hv[li(nx + 2, i, j)], h[li(nx + 2, i, j + 1)] * hv[li(nx + 2, i, j + 1)], h[li(nx + 2, i, j)], h[li(nx + 2, i, j + 1)], llf);
-			Ghu[li(nx + 1, i, j)] = computeFlux(hu[li(nx + 2, i, j)] * hv[li(nx + 2, i, j)], hu[li(nx + 2, i, j + 1)] * hv[li(nx + 2, i, j + 1)], hu[li(nx + 2, i, j)], hu[li(nx + 2, i, j + 1)], llf);
-			Ghv[li(nx + 1, i, j)] = computeFlux(hv[li(nx + 2, i, j)] * hv[li(nx + 2, i, j)] + 0.5f * g * h[li(nx + 2, i, j)],
-				hv[li(nx + 2, i, j + 1)] * hv[li(nx + 2, i, j + 1)] + 0.5f * g * h[li(nx + 2, i, j + 1)],
+			//float llf = dy / dt;
+			Gh[li(nx + 1, i, j)] = computeFlux(hv[li(nx + 2, i, j)], hv[li(nx + 2, i, j + 1)], h[li(nx + 2, i, j)], h[li(nx + 2, i, j + 1)], llf);
+
+			Ghu[li(nx + 1, i, j)] = computeFlux(hu[li(nx + 2, i, j)] * hv[li(nx + 2, i, j)] / h[li(nx + 2, i, j)], hu[li(nx + 2, i, j + 1)] * hv[li(nx + 2, i, j + 1)] / h[li(nx + 2, i, j + 1)], hu[li(nx + 2, i, j)], hu[li(nx + 2, i, j + 1)], llf);
+
+			Ghv[li(nx + 1, i, j)] = computeFlux(hv[li(nx + 2, i, j)] * hv[li(nx + 2, i, j)] / h[li(nx + 2, i, j)] + 0.5f * g * h[li(nx + 2, i, j)] * h[li(nx + 2, i, j)],
+				hv[li(nx + 2, i, j + 1)] * hv[li(nx + 2, i, j + 1)] / h[li(nx + 2, i, j + 1)] + 0.5f * g * h[li(nx + 2, i, j + 1)] * h[li(nx + 2, i, j + 1)],
 				hv[li(nx + 2, i, j)],
 				hv[li(nx + 2, i, j + 1)],
 				llf);
@@ -252,8 +258,8 @@ void SWE::computeBathymetrySources()
 	{
 		for (int j = 1; j <= ny; j++)
 		{
-			Bu[li(nx + 2, i, j)] = g*(h[li(nx + 2, i, j)] * b[li(nx + 2, i, j)] - h[li(nx + 2, i - 1, j)] * b[li(nx + 2, i - 1, j)]);
-			Bv[li(nx + 2, i, j)] = g*(h[li(nx + 2, i, j)] * b[li(nx + 2, i, j)] - h[li(nx + 2, i, j - 1)] * b[li(nx + 2, i, j - 1)]);
+			Bu[li(nx + 2, i, j)] = g * 0.5f * (h[li(nx + 2, i, j)] + h[li(nx + 2, i - 1, j)]) * (b[li(nx + 2, i, j)] - b[li(nx + 2, i - 1, j)]);
+			Bv[li(nx + 2, i, j)] = g * 0.5f * (h[li(nx + 2, i, j)] + h[li(nx + 2, i, j - 1)]) * (b[li(nx + 2, i, j)] - b[li(nx + 2, i, j - 1)]);
 		}
 	}
 
@@ -280,25 +286,26 @@ float SWE::eulerTimestep()
 
 float SWE::getMaxTimestep(float cfl_number)
 {
-	float hmax = numeric_limits<float>::min();
-	float vmax = numeric_limits<float>::min();
-	float meshSize = (dx < dy) ? dx : dy;
+	float l_maximumWaveSpeed = 0.0f;
 
 	for (int i = 1; i <= nx; i++)
 	{
 		for (int j = 1; j <= ny; j++)
 		{
-			if (h[li(nx + 2, i, j)] > hmax) hmax = h[li(nx + 2, i, j)];
-			if (fabsf(hu[li(nx + 2, i, j)]) > vmax) vmax = fabsf(hu[li(nx + 2, i, j)]);
-			if (fabsf(hv[li(nx + 2, i, j)]) > vmax) vmax = fabsf(hv[li(nx + 2, i, j)]);
+			if (h[li(nx + 2, i, j)] > 1e-5f)
+			{
+				float l_momentum = fmaxf(fabsf(hu[li(nx + 2, i, j)]), fabsf(hv[li(nx + 2, i, j)]));
+				float l_particleVelocity = l_momentum / h[li(nx + 2, i, j)];
+
+				float l_waveSpeed = l_particleVelocity + sqrtf(g * h[li(nx + 2, i, j)]);
+
+				l_maximumWaveSpeed = fmaxf(l_waveSpeed, l_maximumWaveSpeed);
+			}
 		}
 	}
 
-	cout << "hmax " << hmax << endl << flush;
-	cout << "vmax " << vmax << endl << flush;
-	//cout << "dt " << meshSize / (sqrt(g*hmax) + vmax) << endl;
-
-	return cfl_number * meshSize / (sqrtf(g*hmax) + vmax);
+	return cfl_number * fminf(dx, dy) / l_maximumWaveSpeed;
+	//return 0.0003f;
 }
 
 
@@ -310,12 +317,13 @@ float SWE::simulate(float tStart, float tEnd)
 	do
 	{
 		//do debug output
-		writeVTKFile(generateFileName("detailed_out/out", iter));
+		//writeVTKFile(generateFileName("detailed_out/out", iter));
+		float tMax = getMaxTimestep();
+		cout << "max dt: " << tMax << endl;
+		setTimestep(tMax);
 		setBoundaryLayer();
 		computeBathymetrySources();
 		t += eulerTimestep();
-		//float tMax = getMaxTimestep();
-		//setTimestep(tMax);
 		iter++;
 	} while (t < tEnd);
 
@@ -347,21 +355,26 @@ void SWE::writeVTKFile(string FileName)
 	//DOFS
 	for (int j = 1; j < ny + 1; j++)
 		for (int i = 1; i < nx + 1; i++)
-			Vtk_file << (h[li(nx + 2, i, j)] + b[li(nx + 2, i, j)]) << endl;
-	Vtk_file << "SCALARS U float 1" << endl;
+			Vtk_file << h[li(nx + 2, i, j)] /* + b[li(nx + 2, i, j)]*/ << endl;
+	Vtk_file << "SCALARS HU float 1" << endl;
 	Vtk_file << "LOOKUP_TABLE default" << endl;
 	for (int j = 1; j < ny + 1; j++)
 		for (int i = 1; i < nx + 1; i++)
-			Vtk_file << hu[li(nx + 2, i, j)] / h[li(nx + 2, i, j)] << endl;
-	Vtk_file << "SCALARS V float 1" << endl;
+			Vtk_file << hu[li(nx + 2, i, j)] /*/ h[li(nx + 2, i, j)]*/ << endl;
+	Vtk_file << "SCALARS HV float 1" << endl;
 	Vtk_file << "LOOKUP_TABLE default" << endl;
 	for (int j = 1; j < ny + 1; j++)
 		for (int i = 1; i < nx + 1; i++)
-			Vtk_file << hv[li(nx + 2, i, j)] / h[li(nx + 2, i, j)] << endl;
+			Vtk_file << hv[li(nx + 2, i, j)] /*/ h[li(nx + 2, i, j)]*/ << endl;
 	Vtk_file << "SCALARS B float 1" << endl;
 	Vtk_file << "LOOKUP_TABLE default" << endl;
 	for (int j = 1; j < ny + 1; j++)
 		for (int i = 1; i < nx + 1; i++)
 			Vtk_file << b[li(nx + 2, i, j)] << endl;
+	Vtk_file << "SCALARS WATER_HEIGHT float 1" << endl;
+	Vtk_file << "LOOKUP_TABLE default" << endl;
+	for (int j = 1; j < ny + 1; j++)
+		for (int i = 1; i < nx + 1; i++)
+			Vtk_file << h[li(nx + 2, i, j)] + b[li(nx + 2, i, j)] << endl;
 	Vtk_file.close();
 }
