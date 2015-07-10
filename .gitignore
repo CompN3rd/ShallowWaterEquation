@@ -36,6 +36,8 @@
 *.pdb
 *.ilk
 *.idb
+*.cu.cache
+*.cu.deps
 
 # Visual Studio Project files
 *.sdf
