@@ -80,10 +80,10 @@
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <LinkIncremental>true</LinkIncremental>
-    <IncludePath>C:\ProgramData\NVIDIA Corporation\CUDA Samples\v7.0\common\inc;$(IncludePath)</IncludePath>
+    <IncludePath>$(NVCUDASAMPLES_ROOT)\common\inc;$(IncludePath)</IncludePath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <IncludePath>C:\ProgramData\NVIDIA Corporation\CUDA Samples\v7.0\common\inc;$(IncludePath)</IncludePath>
+    <IncludePath>$(NVCUDASAMPLES_ROOT)\common\inc;$(IncludePath)</IncludePath>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
