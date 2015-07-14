@@ -202,12 +202,12 @@ __global__ void setHorizontalBoundaryLayer(float* hd, float* hud, float* hvd, in
 
 void SWE::setBoundaryLayer()
 {
-	dim3 verticalBlock = dim3(blockSize.y);
+	dim3 verticalBlock = dim3(blockSize.y * blockSize.y);
 	dim3 verticalGrid = dim3(divUp(ny + 2, verticalBlock.x));
 
 	setVerticalBoundaryLayer << <verticalGrid, verticalBlock >> >(hd, hud, hvd, nx + 2, ny + 2, left, right);
 
-	dim3 horizontalBlock = dim3(blockSize.x);
+	dim3 horizontalBlock = dim3(blockSize.x * blockSize.x);
 	dim3 horizontalGrid = dim3(divUp(nx + 2, verticalBlock.x));
 
 	setHorizontalBoundaryLayer << <horizontalGrid, horizontalBlock >> >(hd, hud, hvd, nx + 2, ny + 2, bottom, top);
@@ -234,7 +234,49 @@ __device__ float computeLocalSV(float* hd, float* hud, float* hvd, int i, int j,
 	return (sv1 > sv2) ? sv1 : sv2;
 }
 
-__global__ void computeHorizontalFluxes(float* hd, float* hud, float* hvd, float* Fhd, float* Fhud, float* Fhvd, int width, int height, float g)
+//__global__ void computeHorizontalFluxes(float* hd, float* hud, float* hvd, float* Fhd, float* Fhud, float* Fhvd, int width, int height, float g)
+//{
+//	int i = threadIdx.x + blockIdx.x * blockDim.x;
+//	int j = threadIdx.y + blockIdx.y * blockDim.y;
+//
+//	if (i >= width - 1 || j >= height - 1)
+//		return;
+//
+//	float llf = computeLocalSV(hd, hud, hvd, i, j, width, g, 'x');
+//
+//	Fhd[li(width - 1, i, j)] = computeFlux(hud[li(width, i, j)], hud[li(width, i + 1, j)], hd[li(width, i, j)], hd[li(width, i + 1, j)], llf);
+//
+//	Fhud[li(width - 1, i, j)] = computeFlux(hud[li(width, i, j)] * hud[li(width, i, j)] / hd[li(width, i, j)] + 0.5f * g * hd[li(width, i, j)] * hd[li(width, i, j)],
+//		hud[li(width, i + 1, j)] * hud[li(width, i + 1, j)] / hd[li(width, i + 1, j)] + 0.5f * g * hd[li(width, i + 1, j)] * hd[li(width, i + 1, j)],
+//		hud[li(width, i, j)],
+//		hud[li(width, i + 1, j)],
+//		llf);
+//
+//	Fhvd[li(width - 1, i, j)] = computeFlux(hud[li(width, i, j)] * hvd[li(width, i, j)] / hd[li(width, i, j)], hud[li(width, i + 1, j)] * hvd[li(width, i + 1, j)] / hd[li(width, i + 1, j)], hvd[li(width, i, j)], hvd[li(width, i + 1, j)], llf);
+//}
+//
+//__global__ void computeVerticalFluxes(float* hd, float* hud, float* hvd, float* Ghd, float* Ghud, float* Ghvd, int width, int height, float g)
+//{
+//	int i = threadIdx.x + blockIdx.x * blockDim.x;
+//	int j = threadIdx.y + blockIdx.y * blockDim.y;
+//
+//	if (i >= width - 1 || j >= height - 1)
+//		return;
+//
+//	float llf = computeLocalSV(hd, hud, hvd, i, j, width, g, 'y');
+//
+//	Ghd[li(width - 1, i, j)] = computeFlux(hvd[li(width, i, j)], hvd[li(width, i, j + 1)], hd[li(width, i, j)], hd[li(width, i, j + 1)], llf);
+//
+//	Ghud[li(width - 1, i, j)] = computeFlux(hud[li(width, i, j)] * hvd[li(width, i, j)] / hd[li(width, i, j)], hud[li(width, i, j + 1)] * hvd[li(width, i, j + 1)] / hd[li(width, i, j + 1)], hud[li(width, i, j)], hud[li(width, i, j + 1)], llf);
+//
+//	Ghvd[li(width - 1, i, j)] = computeFlux(hvd[li(width, i, j)] * hvd[li(width, i, j)] / hd[li(width, i, j)] + 0.5f * g * hd[li(width, i, j)] * hd[li(width, i, j)],
+//		hvd[li(width, i, j + 1)] * hvd[li(width, i, j + 1)] / hd[li(width, i, j + 1)] + 0.5f * g * hd[li(width, i, j + 1)] * hd[li(width, i, j + 1)],
+//		hvd[li(width, i, j)],
+//		hvd[li(width, i, j + 1)],
+//		llf);
+//}
+
+__global__ void computeFluxes_kernel(float* hd, float* hud, float* hvd, float* Fhd, float* Fhud, float* Fhvd, float* Ghd, float* Ghud, float* Ghvd, int width, int height, float g)
 {
 	int i = threadIdx.x + blockIdx.x * blockDim.x;
 	int j = threadIdx.y + blockIdx.y * blockDim.y;
@@ -242,48 +284,48 @@ __global__ void computeHorizontalFluxes(float* hd, float* hud, float* hvd, float
 	if (i >= width - 1 || j >= height - 1)
 		return;
 
-	float llf = computeLocalSV(hd, hud, hvd, i, j, width, g, 'x');
+	const float llfx = computeLocalSV(hd, hud, hvd, i, j, width, g, 'x');
+	const float llfy = computeLocalSV(hd, hud, hvd, i, j, width, g, 'y');
 
-	Fhd[li(width - 1, i, j)] = computeFlux(hud[li(width, i, j)], hud[li(width, i + 1, j)], hd[li(width, i, j)], hd[li(width, i + 1, j)], llf);
+	const int outIndex = li(width - 1, i, j);
 
-	Fhud[li(width - 1, i, j)] = computeFlux(hud[li(width, i, j)] * hud[li(width, i, j)] / hd[li(width, i, j)] + 0.5f * g * hd[li(width, i, j)] * hd[li(width, i, j)],
-		hud[li(width, i + 1, j)] * hud[li(width, i + 1, j)] / hd[li(width, i + 1, j)] + 0.5f * g * hd[li(width, i + 1, j)] * hd[li(width, i + 1, j)],
-		hud[li(width, i, j)],
-		hud[li(width, i + 1, j)],
-		llf);
+	const float hd_curr = hd[li(width, i, j)];
+	const float hd_right = hd[li(width, i + 1, j)];
+	const float hd_top = hd[li(width, i, j + 1)];
 
-	Fhvd[li(width - 1, i, j)] = computeFlux(hud[li(width, i, j)] * hvd[li(width, i, j)] / hd[li(width, i, j)], hud[li(width, i + 1, j)] * hvd[li(width, i + 1, j)] / hd[li(width, i + 1, j)], hvd[li(width, i, j)], hvd[li(width, i + 1, j)], llf);
-}
+	const float hud_curr = hud[li(width, i, j)];
+	const float hud_right = hud[li(width, i + 1, j)];
+	const float hud_top = hud[li(width, i, j + 1)];
 
-__global__ void computeVerticalFluxes(float* hd, float* hud, float* hvd, float* Ghd, float* Ghud, float* Ghvd, int width, int height, float g)
-{
-	int i = threadIdx.x + blockIdx.x * blockDim.x;
-	int j = threadIdx.y + blockIdx.y * blockDim.y;
+	const float hvd_curr = hvd[li(width, i, j)];
+	const float hvd_right = hvd[li(width, i + 1, j)];
+	const float hvd_top = hvd[li(width, i, j + 1)];
 
-	if (i >= width - 1 || j >= height - 1)
-		return;
+	Fhd[outIndex] = computeFlux(hud_curr, hud_right, hd_curr, hd_right, llfx);
 
-	float llf = computeLocalSV(hd, hud, hvd, i, j, width, g, 'y');
+	Fhud[outIndex] = computeFlux(hud_curr * hud_curr / hd_curr + 0.5f * g * hd_curr * hd_curr,
+		hud_right * hud_right / hd_right + 0.5f * g * hd_right * hd_right,
+		hud_curr,
+		hud_right,
+		llfx);
 
-	Ghd[li(width - 1, i, j)] = computeFlux(hvd[li(width, i, j)], hvd[li(width, i, j + 1)], hd[li(width, i, j)], hd[li(width, i, j + 1)], llf);
+	Fhvd[outIndex] = computeFlux(hud_curr * hvd_curr / hd_curr, hud_right * hvd_right / hd_right, hvd_curr, hvd_right, llfx);
 
-	Ghud[li(width - 1, i, j)] = computeFlux(hud[li(width, i, j)] * hvd[li(width, i, j)] / hd[li(width, i, j)], hud[li(width, i, j + 1)] * hvd[li(width, i, j + 1)] / hd[li(width, i, j + 1)], hud[li(width, i, j)], hud[li(width, i, j + 1)], llf);
+	Ghd[outIndex] = computeFlux(hvd_curr, hvd_top, hd_curr, hd_top, llfy);
 
-	Ghvd[li(width - 1, i, j)] = computeFlux(hvd[li(width, i, j)] * hvd[li(width, i, j)] / hd[li(width, i, j)] + 0.5f * g * hd[li(width, i, j)] * hd[li(width, i, j)],
-		hvd[li(width, i, j + 1)] * hvd[li(width, i, j + 1)] / hd[li(width, i, j + 1)] + 0.5f * g * hd[li(width, i, j + 1)] * hd[li(width, i, j + 1)],
-		hvd[li(width, i, j)],
-		hvd[li(width, i, j + 1)],
-		llf);
+	Ghud[outIndex] = computeFlux(hud_curr * hvd_curr / hd_curr, hud_top * hvd_top / hd_top, hud_curr, hud_top, llfy);
+
+	Ghvd[outIndex] = computeFlux(hvd_curr * hvd_curr / hd_curr + 0.5f * g * hd_curr * hd_curr,
+		hvd_top * hvd_top / hd_top + 0.5f * g * hd_top * hd_top,
+		hvd_curr,
+		hvd_top,
+		llfy);
 }
 
 void SWE::computeFluxes()
 {
 	dim3 gridSize = dim3(divUp(nx + 1, blockSize.x), divUp(ny + 1, blockSize.y));
-	//fluxes in x direction:
-	computeHorizontalFluxes << <gridSize, blockSize >> >(hd, hud, hvd, Fhd, Fhud, Fhvd, nx + 2, ny + 2, g);
-
-	//fluxes in y direction
-	computeVerticalFluxes << <gridSize, blockSize >> >(hd, hud, hvd, Ghd, Ghud, Ghvd, nx + 2, ny + 2, g);
+	computeFluxes_kernel << <gridSize, blockSize >> >(hd, hud, hvd, Fhd, Fhud, Fhvd, Ghd, Ghud, Ghvd, nx + 2, ny + 2, g);
 }
 
 __global__ void computeBathymetrySources_kernel(float* hd, float* bd, float* Bud, float* Bvd, int width, int height, float g)
@@ -313,9 +355,14 @@ __global__ void eulerTimestep_kernel(float* hd, float* hud, float* hvd, float* F
 	if (i >= width - 1 || j >= height - 1)
 		return;
 
-	hd[li(width, i, j)] -= dt*((Fhd[li(width - 1, i, j)] - Fhd[li(width - 1, i - 1, j)]) / dx + (Ghd[li(width - 1, i, j)] - Ghd[li(width - 1, i, j - 1)]) / dy);
-	hud[li(width, i, j)] -= dt*((Fhud[li(width - 1, i, j)] - Fhud[li(width - 1, i - 1, j)]) / dx + (Ghud[li(width - 1, i, j)] - Ghud[li(width - 1, i, j - 1)]) / dy + Bud[li(width, i, j)] / dx);
-	hvd[li(width, i, j)] -= dt*((Fhvd[li(width - 1, i, j)] - Fhvd[li(width - 1, i - 1, j)]) / dx + (Ghvd[li(width - 1, i, j)] - Ghvd[li(width - 1, i, j - 1)]) / dy + Bvd[li(width, i, j)] / dy);
+	const int currentIndexH = li(width, i, j);
+	const int currentIndex = li(width - 1, i, j);
+	const int leftIndex = li(width - 1, i - 1, j);
+	const int bottomIndex = li(width - 1, i, j - 1);
+
+	hd[currentIndexH] -= dt*((Fhd[currentIndex] - Fhd[leftIndex]) / dx + (Ghd[currentIndex] - Ghd[bottomIndex]) / dy);
+	hud[currentIndexH] -= dt*((Fhud[currentIndex] - Fhud[leftIndex]) / dx + (Ghud[currentIndex] - Ghud[bottomIndex]) / dy + Bud[currentIndexH] / dx);
+	hvd[currentIndexH] -= dt*((Fhvd[currentIndex] - Fhvd[leftIndex]) / dx + (Ghvd[currentIndex] - Ghvd[bottomIndex]) / dy + Bvd[currentIndexH] / dy);
 }
 
 float SWE::eulerTimestep()
@@ -406,7 +453,6 @@ float SWE::simulate(float tStart, float tEnd)
 	do
 	{
 		float tMax = getMaxTimestep();
-		cout << "max dt: " << tMax << endl;
 		setTimestep(tMax);
 		setBoundaryLayer();
 		computeBathymetrySources();

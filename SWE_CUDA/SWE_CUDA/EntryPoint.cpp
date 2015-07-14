@@ -34,11 +34,11 @@ int main(int argc, char** argv)
 		exit(1);
 	}
 
-	SWE swe(atoi(argv[1]), atoi(argv[2]), 1.0f/atof(argv[1]), 1.0f/atof(argv[2]));
+	SWE* swe = new SWE(atoi(argv[1]), atoi(argv[2]), 1.0f/atof(argv[1]), 1.0f/atof(argv[2]));
 	cout << "nx: " << atoi(argv[1]) << "ny: " << atoi(argv[2]) << "dx: " << 1.0f / atof(argv[1]) << "dy: " << 1.0f / atof(argv[2]) << endl;
-	swe.setInitialValues(&getWaterHeight, 0.0f, 0.0f);
-	swe.setBathymetry(&getBathymetry);
-	swe.setBoundaryType(WALL, WALL, WALL, WALL);
+	swe->setInitialValues(&getWaterHeight, 0.0f, 0.0f);
+	swe->setBathymetry(&getBathymetry);
+	swe->setBoundaryType(WALL, WALL, WALL, WALL);
 
 	float endSimulation = 1.0f;
 	int numCheckPoints = 10;
@@ -51,13 +51,17 @@ int main(int argc, char** argv)
 	basename = string(argv[3]);
 
 	cout << "Write output file: water level at start" << endl;
-	swe.writeVTKFile(swe.generateFileName(basename, 0));
+	swe->writeVTKFile(swe->generateFileName(basename, 0));
 
 	float t = 0.0f;
 	for (int i = 1; i <= numCheckPoints; i++)
 	{
-		t = swe.simulate(t, checkPt[i]);
+		t = swe->simulate(t, checkPt[i]);
 		cout << "Write output file: water level at time " << t << endl;
-		swe.writeVTKFile(swe.generateFileName(basename, i));
+		swe->writeVTKFile(swe->generateFileName(basename, i));
 	}
+
+	delete swe;
+
+	checkCudaErrors(cudaDeviceReset());
 }
