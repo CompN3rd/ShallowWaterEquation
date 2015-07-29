@@ -31,7 +31,6 @@ int main(int argc, char** argv)
 	if (argc < 4)
 	{
 		cout << "too few parameters!" << endl;
-		exit(1);
 	}
 
 	SWE* swe = new SWE(atoi(argv[1]), atoi(argv[2]), 1.0f/atof(argv[1]), 1.0f/atof(argv[2]));
