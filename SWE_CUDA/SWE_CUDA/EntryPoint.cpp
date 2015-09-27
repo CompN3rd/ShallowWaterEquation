@@ -1,5 +1,6 @@
 #include "SWE.h"
 #include <stdio.h>
+#include <omp.h>
 
 //float splash_height(float x, float y)
 //{
@@ -53,15 +54,22 @@ int main(int argc, char** argv)
 	cout << "Writing output file: water level at start" << endl;
 	swe->writeVTKFile(swe->generateFileName(basename, 0));
 
+	double simulationTime = 0.0;
 	float t = 0.0f;
 	for (int i = 1; i <= numCheckPoints; i++)
 	{
+		double t1 = omp_get_wtime();
 		t = swe->simulate(t, checkPt[i]);
+		checkCudaErrors(cudaDeviceSynchronize());
+		double t2 = omp_get_wtime();
+		simulationTime += t2 - t1;
+
 		cout << "Writing output file: water level at time " << t << endl;
 		swe->writeVTKFile(swe->generateFileName(basename, i));
 	}
 
 	checkCudaErrors(cudaDeviceSynchronize());
+	cout << "Simulation done in: " << simulationTime << "s" << endl;
 
 	delete swe;
 

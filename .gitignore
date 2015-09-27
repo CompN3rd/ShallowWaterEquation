@@ -42,3 +42,6 @@
 # Visual Studio Project files
 *.sdf
 *.suo
+
+#misc files
+*.png

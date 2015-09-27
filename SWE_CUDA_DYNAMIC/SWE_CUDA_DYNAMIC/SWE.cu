@@ -17,11 +17,11 @@ SWE::SWE(int _nx, int _ny, float _dx, float _dy, float _g, int maxRecursion, int
 
 	blockSize = dim3(blockX, blockY);
 	this->maxRecursion = maxRecursion;
-	if (getCellExt(blockX, maxRecursion) != nx || getCellExt(blockY, maxRecursion) != ny)
-	{
-		cerr << "Block size and computation area do not match" << endl;
-		exit(1);
-	}
+	//if (getCellExt(blockX, maxRecursion) != nx || getCellExt(blockY, maxRecursion) != ny)
+	//{
+	//	cerr << "Block size and computation area do not match" << endl;
+	//	exit(1);
+	//}
 
 	//cudaDeviceSetLimit(cudaLimitDevRuntimeSyncDepth, maxRecursion + 1);
 	//cudaDeviceSetLimit(cudaLimitDevRuntimePendingLaunchCount, nx > ny ? nx : ny);
@@ -503,7 +503,7 @@ float SWE::eulerTimestep()
 	//eulerTimestep_kernel << <gridSize, blockSize >> >(hd, hud, hvd, Fhd, Fhud, Fhvd, Ghd, Ghud, Ghvd, Bud, Bvd, nx + 2, ny + 2, dt, dx, dy);
 	//dim3 gridSize = dim3(divUp(nx, getCellExt(blockSize.x, maxRecursion)), divUp(ny, getCellExt(blockSize.y, maxRecursion)));
 	dim3 block(8, 8);
-	dim3 grid(2, 2);
+	dim3 grid(8, 8);
 	eulerTimestep_parent_kernel << <grid, block >> >(td, maxRecursion, hd, hud, hvd, Fhd, Fhud, Fhvd, Ghd, Ghud, Ghvd, Bud, Bvd, nx + 2, ny + 2, dt, dx, dy);
 
 	return dt;

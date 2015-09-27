@@ -1,0 +1,177 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CudaCompile Include="MandelbrotDyn.cu" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="LibPNG">
+      <UniqueIdentifier>{4c07b1ef-8dc7-434f-8e37-8c28a3281552}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="LibPNG\Header">
+      <UniqueIdentifier>{6ea93245-9301-4d68-9eb9-a4ca96608641}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="LibPNG\Source">
+      <UniqueIdentifier>{c39a6b96-5264-4f27-bfb7-f7949ec59fdd}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="ZLib">
+      <UniqueIdentifier>{f5339d8e-f200-4045-9773-80d848307a3d}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="ZLib\Header">
+      <UniqueIdentifier>{aaba8e55-5f1f-410c-b4b1-036f0c62470d}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="ZLib\Source">
+      <UniqueIdentifier>{d784de42-47c4-4130-ba00-d29928d2dab7}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="lpng1618\png.h">
+      <Filter>LibPNG\Header</Filter>
+    </ClInclude>
+    <ClInclude Include="lpng1618\pngconf.h">
+      <Filter>LibPNG\Header</Filter>
+    </ClInclude>
+    <ClInclude Include="lpng1618\pngdebug.h">
+      <Filter>LibPNG\Header</Filter>
+    </ClInclude>
+    <ClInclude Include="lpng1618\pnginfo.h">
+      <Filter>LibPNG\Header</Filter>
+    </ClInclude>
+    <ClInclude Include="lpng1618\pnglibconf.h">
+      <Filter>LibPNG\Header</Filter>
+    </ClInclude>
+    <ClInclude Include="lpng1618\pngpriv.h">
+      <Filter>LibPNG\Header</Filter>
+    </ClInclude>
+    <ClInclude Include="lpng1618\pngstruct.h">
+      <Filter>LibPNG\Header</Filter>
+    </ClInclude>
+    <ClInclude Include="zlib-1.2.8\crc32.h">
+      <Filter>ZLib\Header</Filter>
+    </ClInclude>
+    <ClInclude Include="zlib-1.2.8\deflate.h">
+      <Filter>ZLib\Header</Filter>
+    </ClInclude>
+    <ClInclude Include="zlib-1.2.8\gzguts.h">
+      <Filter>ZLib\Header</Filter>
+    </ClInclude>
+    <ClInclude Include="zlib-1.2.8\inffast.h">
+      <Filter>ZLib\Header</Filter>
+    </ClInclude>
+    <ClInclude Include="zlib-1.2.8\inffixed.h">
+      <Filter>ZLib\Header</Filter>
+    </ClInclude>
+    <ClInclude Include="zlib-1.2.8\inflate.h">
+      <Filter>ZLib\Header</Filter>
+    </ClInclude>
+    <ClInclude Include="zlib-1.2.8\inftrees.h">
+      <Filter>ZLib\Header</Filter>
+    </ClInclude>
+    <ClInclude Include="zlib-1.2.8\trees.h">
+      <Filter>ZLib\Header</Filter>
+    </ClInclude>
+    <ClInclude Include="zlib-1.2.8\zconf.h">
+      <Filter>ZLib\Header</Filter>
+    </ClInclude>
+    <ClInclude Include="zlib-1.2.8\zlib.h">
+      <Filter>ZLib\Header</Filter>
+    </ClInclude>
+    <ClInclude Include="zlib-1.2.8\zutil.h">
+      <Filter>ZLib\Header</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="lpng1618\example.c">
+      <Filter>LibPNG\Source</Filter>
+    </ClCompile>
+    <ClCompile Include="lpng1618\png.c">
+      <Filter>LibPNG\Source</Filter>
+    </ClCompile>
+    <ClCompile Include="lpng1618\pngerror.c">
+      <Filter>LibPNG\Source</Filter>
+    </ClCompile>
+    <ClCompile Include="lpng1618\pngget.c">
+      <Filter>LibPNG\Source</Filter>
+    </ClCompile>
+    <ClCompile Include="lpng1618\pngmem.c">
+      <Filter>LibPNG\Source</Filter>
+    </ClCompile>
+    <ClCompile Include="lpng1618\pngpread.c">
+      <Filter>LibPNG\Source</Filter>
+    </ClCompile>
+    <ClCompile Include="lpng1618\pngread.c">
+      <Filter>LibPNG\Source</Filter>
+    </ClCompile>
+    <ClCompile Include="lpng1618\pngrio.c">
+      <Filter>LibPNG\Source</Filter>
+    </ClCompile>
+    <ClCompile Include="lpng1618\pngrtran.c">
+      <Filter>LibPNG\Source</Filter>
+    </ClCompile>
+    <ClCompile Include="lpng1618\pngrutil.c">
+      <Filter>LibPNG\Source</Filter>
+    </ClCompile>
+    <ClCompile Include="lpng1618\pngset.c">
+      <Filter>LibPNG\Source</Filter>
+    </ClCompile>
+    <ClCompile Include="lpng1618\pngtrans.c">
+      <Filter>LibPNG\Source</Filter>
+    </ClCompile>
+    <ClCompile Include="lpng1618\pngwio.c">
+      <Filter>LibPNG\Source</Filter>
+    </ClCompile>
+    <ClCompile Include="lpng1618\pngwrite.c">
+      <Filter>LibPNG\Source</Filter>
+    </ClCompile>
+    <ClCompile Include="lpng1618\pngwtran.c">
+      <Filter>LibPNG\Source</Filter>
+    </ClCompile>
+    <ClCompile Include="lpng1618\pngwutil.c">
+      <Filter>LibPNG\Source</Filter>
+    </ClCompile>
+    <ClCompile Include="zlib-1.2.8\adler32.c">
+      <Filter>ZLib\Source</Filter>
+    </ClCompile>
+    <ClCompile Include="zlib-1.2.8\compress.c">
+      <Filter>ZLib\Source</Filter>
+    </ClCompile>
+    <ClCompile Include="zlib-1.2.8\crc32.c">
+      <Filter>ZLib\Source</Filter>
+    </ClCompile>
+    <ClCompile Include="zlib-1.2.8\deflate.c">
+      <Filter>ZLib\Source</Filter>
+    </ClCompile>
+    <ClCompile Include="zlib-1.2.8\gzclose.c">
+      <Filter>ZLib\Source</Filter>
+    </ClCompile>
+    <ClCompile Include="zlib-1.2.8\gzlib.c">
+      <Filter>ZLib\Source</Filter>
+    </ClCompile>
+    <ClCompile Include="zlib-1.2.8\gzread.c">
+      <Filter>ZLib\Source</Filter>
+    </ClCompile>
+    <ClCompile Include="zlib-1.2.8\gzwrite.c">
+      <Filter>ZLib\Source</Filter>
+    </ClCompile>
+    <ClCompile Include="zlib-1.2.8\infback.c">
+      <Filter>ZLib\Source</Filter>
+    </ClCompile>
+    <ClCompile Include="zlib-1.2.8\inffast.c">
+      <Filter>ZLib\Source</Filter>
+    </ClCompile>
+    <ClCompile Include="zlib-1.2.8\inflate.c">
+      <Filter>ZLib\Source</Filter>
+    </ClCompile>
+    <ClCompile Include="zlib-1.2.8\inftrees.c">
+      <Filter>ZLib\Source</Filter>
+    </ClCompile>
+    <ClCompile Include="zlib-1.2.8\trees.c">
+      <Filter>ZLib\Source</Filter>
+    </ClCompile>
+    <ClCompile Include="zlib-1.2.8\uncompr.c">
+      <Filter>ZLib\Source</Filter>
+    </ClCompile>
+    <ClCompile Include="zlib-1.2.8\zutil.c">
+      <Filter>ZLib\Source</Filter>
+    </ClCompile>
+  </ItemGroup>
+</Project>
