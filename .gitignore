@@ -45,3 +45,12 @@
 
 #misc files
 *.png
+
+#Latex files
+*.aux
+*.nav
+*.pdf
+*.snm
+*.synctex.gz
+*.toc
+*.vrb
