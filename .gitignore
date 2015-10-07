@@ -54,3 +54,5 @@
 *.synctex.gz
 *.toc
 *.vrb
+*.pygtex*
+*.pygstyle
