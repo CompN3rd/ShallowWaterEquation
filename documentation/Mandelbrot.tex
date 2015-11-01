@@ -74,10 +74,10 @@
 
 \subsection{The Escape Time Algorithm}
 
-\begin{frame}
+\begin{frame}{The Escape Time Algorithm}
 	\begin{itemize}
 		\item one of the easiest algorithms for computing the Mandelbrot Set
-		\item computes the \textit{dwell} for each pixel (point in the complex plane)
+		\item computes the \textit{dwell} for each pixel (point in the complex plane) according to the series definition
 		\item for a fixed maximum number of iterations the series is computed and it is checked, if the value of \textit{dwell} 'escapes' outside a circle of radius 2
 		\item this is correct, as the series will diverge, if one element lies outside this circle
 		\item if the point 'escapes', the color value of the point will be the \textit{dwell}
@@ -129,6 +129,17 @@
 \end{frame}
 
 \section{Extending the Algorithm with Dynamic Parallelism}
+
+\begin{frame}{Extending the Algorithm with Dynamic Parallelism}
+	\begin{itemize}
+		\item Extension relies on a mathematical fact
+		\item The set is \textit{connected}
+		\item Between any two parts of the set, there is a path, that lies wholly inside the set
+		\item Thus, a region (of any shape) lies within the Mandelbrot Set, iff its border lies within the set
+		\item More genrally, if the border of the region has a constant dwell, then every pixel in the region has the same dwell
+		\item This saves computation time
+	\end{itemize}
+\end{frame}
 
 \subsection{Compiling the Algorithm for Dynamic Paralellism}
 
