@@ -141,6 +141,21 @@
 	\end{itemize}
 \end{frame}
 
+\begin{frame}[fragile]{The Mariani-Silver Algorithm}
+	The Mariani-Silver Algorithm combines the connectedness of the set with recursive subdivision of rectangular regions:
+	\begin{minted}{c++}
+	mariani_silver(rectangle) 
+	  if (border(rectangle) has common dwell) 
+	    fill rectangle with common dwell
+	  else if (rectangle size < threshold)
+	    per-pixel evaluation of the rectangle
+	  else
+	    for each sub_rectangle in subdivide(rectangle)
+	      mariani_silver(sub_rectangle)
+	\end{minted}
+	In CUDA this will be implemented using one thread-block for each call of \textit{mariani\_silver}. This block then uses parallel reduction to determine the dwell of all border pixels and thread 0 then decides how to subdivide the rectangle
+\end{frame}
+
 \subsection{Compiling the Algorithm for Dynamic Paralellism}
 
 \end{document}
