@@ -72,6 +72,13 @@
 	\end{itemize}
 \end{frame}
 
+\begin{frame}
+	\begin{figure}
+		\includegraphics[height=0.9\textheight]{colored-mandelbrot-set.png}
+		\caption{Visualisation of the Mandelbrot Set (black pixels)}
+	\end{figure}
+\end{frame}
+
 \subsection{The Escape Time Algorithm}
 
 \begin{frame}{The Escape Time Algorithm}
@@ -156,6 +163,111 @@
 	In CUDA this will be implemented using one thread-block for each call of \textit{mariani\_silver}. This block then uses parallel reduction to determine the dwell of all border pixels and thread 0 then decides how to subdivide the rectangle
 \end{frame}
 
+\begin{frame}[fragile]{Mariani-Silver Algorithm using CUDA}
+	\begin{minted}[fontsize=\tiny]{c++}
+	__global__ void mandelbrot_block_k(int *dwells, int w, int h, complex cmin, complex cmax, int x0, int y0, int d, int depth) {
+	
+	x0 += d * blockIdx.x, y0 += d * blockIdx.y;
+	int common_dwell = border_dwell(w, h, cmin, cmax, x0, y0, d);
+	if (threadIdx.x == 0 && threadIdx.y == 0) {
+		if (common_dwell != DIFF_DWELL) {
+			// uniform dwell, just fill
+			dim3 bs(BSX, BSY), grid(divup(d, BSX), divup(d, BSY)); 
+			dwell_fill<<<grid, bs>>> (dwells, w, x0, y0, d, comm_dwell);
+		} else if (depth + 1 > MAX_DEPTH && d / SUBDIV < MIN_SIZE) {
+			// subdivide recursively
+			dim3 bs(blockDim.x, blockDim.y), grid(SUBDIV, SUBDIV); 
+			mandelbrot_block_k<<<grid, bs>>> (dwells, w, h, cmin, cmax, x0, y0, d / SUBDIV, depth+1);
+		} else {
+			// leaf, per-pixel kernel
+			dim3 bs(BSX, BSY), grid(divup(d, BSX), divup(d, BSY)); 
+			mandelbrot_pixel_k<<<grid, bs>>> (dwells, w, h, cmin, cmax, x0, y0, d);
+		}
+		cucheck_dev(cudaGetLastError());
+		}
+	}  // mandelbrot_block_k
+	
+	\end{minted}
+\end{frame}
+
+\begin{frame}[fragile]{Dwell Reduction}
+	\begin{minted}{c++}
+	/** binary operation for common dwell "reduction": MAX_DWELL + 1 = neutral
+	element, -1 = dwells are different */
+	#define NEUT_DWELL (MAX_DWELL + 1)
+	#define DIFF_DWELL (-1)
+	__device__ int same_dwell(int d1, int d2) {
+		if (d1 == d2)
+			return d1;
+		else if (d1 == NEUT_DWELL || d2 == NEUT_DWELL)
+			return min(d1, d2);
+		else
+			return DIFF_DWELL;
+	}  // same_dwell
+	\end{minted}
+\end{frame}
+
+\begin{frame}[fragile]{Dwell Reduction}
+	\begin{minted}[fontsize=\tiny]{c++}
+	__device__ int border_dwell (int w, int h, complex cmin, complex cmax, int x0, int y0, int d) {
+	// check whether all boundary pixels have the same dwell
+		int tid = threadIdx.y * blockDim.x + threadIdx.x;
+		int bs = blockDim.x * blockDim.y;
+		int comm_dwell = NEUT_DWELL;
+		// for all boundary pixels, distributed across threads
+		for (int r = tid; r < d; r += bs) {
+			// for each boundary: b = 0 is east, then counter-clockwise
+			for (int b = 0; b < 4; b++) {
+				int x = b % 2 != 0 ? x0 + r : (b == 0 ? x0 + d - 1 : x0);
+				int y = b % 2 == 0 ? y0 + r : (b == 1 ? y0 + d - 1 : y0);
+				int dwell = pixel_dwell(w, h, cmin, cmax, x, y);
+				comm_dwell = same_dwell(comm_dwell, dwell);
+			}
+		}  // for all boundary pixels
+		// reduce across threads in the block
+		__shared__ int ldwells[BSX * BSY];
+		int nt = min(d, BSX * BSY);
+		if (tid < nt)
+			ldwells[tid] = comm_dwell;
+		__syncthreads();
+		for (; nt > 1; nt /= 2) {
+			if (tid < nt / 2)
+				ldwells[tid] = same_dwell(ldwells[tid], ldwells[tid + nt / 2]);
+			__syncthreads();
+		}
+		return ldwells[0];
+	}  // border_dwell
+	\end{minted}
+\end{frame}
+
+\begin{frame}
+	\begin{figure}
+		\includegraphics[height=0.9\textheight]{mariani-silver-subdivision.png}
+		\caption{Recursive subdivision of the Mandelbrot Set}
+	\end{figure}
+\end{frame}
+
 \subsection{Compiling the Algorithm for Dynamic Paralellism}
+
+\begin{frame}{Compiling and Linking for Dynamic Parallelism}
+	\begin{figure}
+		\includegraphics[width=0.33\textwidth]{dyn-compile-link.png}
+		\caption{Two step compilation and linking for Dynamic Parallism}
+	\end{figure}
+	For creating a program using Dynamic Parallelism, the code must be built for Compute Capability 3.5 or higher and must be linked against \texttt{cudadevrt}
+\end{frame}
+
+\begin{frame}
+	To compile into and object file, use the \texttt{-c}(\texttt{--compile}) option.\\
+	To be able to link this object file later on, use \texttt{-rdc=true}(\texttt{--relocatable-device-code=true})\\
+	\\
+	Those two options can be shortened to \texttt{-dc}(\texttt{--device -c}):\\
+	\texttt{nvcc -arch=sm\_35 -dc myprog.cu -o myprog.o}\\
+	To link this object file with a library, use \texttt{-l} option of \texttt{nvcc}:\\
+	\texttt{nvcc -arch=sm\_35 myprog.o -lcudadevrt -o myprog}\\
+	\\
+	One can also compile and link in a single step:\\
+	\texttt{nvcc -arch=sm\_35 -rdc=true myprog.cu -lcudadevrt -o myprog.o}
+\end{frame}
 
 \end{document}

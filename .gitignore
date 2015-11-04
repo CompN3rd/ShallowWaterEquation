@@ -43,9 +43,6 @@
 *.sdf
 *.suo
 
-#misc files
-*.png
-
 #Latex files
 *.aux
 *.nav
