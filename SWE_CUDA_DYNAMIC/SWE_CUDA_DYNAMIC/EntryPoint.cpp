@@ -26,32 +26,32 @@ float getWaterHeight(float x, float y)
 	return ((x - 0.5f) * (x - 0.5f) + (y - 0.5f) * (y - 0.5f) < 0.05f) ? 1.0f : 0.7f;
 }
 
-
 int main(int argc, char** argv)
 {
-	if (argc < 4)
-	{
-		cout << "too few parameters!" << endl;
-	}
+//	if (argc < 4)
+//	{
+//		cout << "too few parameters!" << endl;
+//	}
 
-	SWE* swe = new SWE(atoi(argv[1]), atoi(argv[2]), 1.0f/atof(argv[1]), 1.0f/atof(argv[2]));
-	cout << "nx: " << atoi(argv[1]) << "ny: " << atoi(argv[2]) << "dx: " << 1.0f / atof(argv[1]) << "dy: " << 1.0f / atof(argv[2]) << endl;
+	//SWE* swe = new SWE(atoi(argv[1]), atoi(argv[2]), 1.0f/atof(argv[1]), 1.0f/atof(argv[2]));
+	//cout << "nx: " << atoi(argv[1]) << "ny: " << atoi(argv[2]) << "dx: " << 1.0f / atof(argv[1]) << "dy: " << 1.0f / atof(argv[2]) << endl;
+	SWE* swe = new SWE(NX, NY, 1.0f / NX, 1.0f / NY);
 	swe->setInitialValues(&getWaterHeight, 0.0f, 0.0f);
 	swe->setBathymetry(&getBathymetry);
 	swe->setBoundaryType(WALL, WALL, WALL, WALL);
 
-	float endSimulation = 0.1f;
-	int numCheckPoints = 3;
+	float endSimulation = 0.001f;
+	int numCheckPoints = 1;
 
 	float* checkPt = new float[numCheckPoints + 1];
 	for (int cp = 0; cp <= numCheckPoints; cp++)
 		checkPt[cp] = cp*(endSimulation / numCheckPoints);
 
 	string basename;
-	basename = string(argv[3]);
+	basename = string(argv[1]);
 
 	cout << "Writing output file: water level at start" << endl;
-	swe->writeVTKFile(swe->generateFileName(basename, 0));
+	//swe->writeVTKFile(swe->generateFileName(basename, 0));
 
 	double simulationTime = 0.0;
 	float t = 0.0f;
@@ -63,7 +63,7 @@ int main(int argc, char** argv)
 		double t2 = omp_get_wtime();
 		simulationTime += t2 - t1;
 		cout << "Writing output file: water level at time " << t << endl;
-		swe->writeVTKFile(swe->generateFileName(basename, i));
+		//swe->writeVTKFile(swe->generateFileName(basename, i));
 	}
 
 	checkCudaErrors(cudaDeviceSynchronize());

@@ -340,158 +340,55 @@ void SWE::computeBathymetrySources()
 }
 
 //-----------------------------------------------------------------------------------------------------------------------------
-//__global__ void eulerTimestep_kernel(float* hd, float* hud, float* hvd, float* Fhd, float* Fhud, float* Fhvd, float* Ghd, float* Ghud, float* Ghvd, float* Bud, float* Bvd, int width, int height, float dt, float dx, float dy)
-//{
-//	int i = threadIdx.x + blockIdx.x * blockDim.x + 1;
-//	int j = threadIdx.y + blockIdx.y * blockDim.y + 1;
-//
-//	if (i >= width - 1 || j >= height - 1)
-//		return;
-//
-//	const int currentIndexH = li(width, i, j);
-//	const int currentIndex = li(width - 1, i, j);
-//	const int leftIndex = li(width - 1, i - 1, j);
-//	const int bottomIndex = li(width - 1, i, j - 1);
-//
-//	hd[currentIndexH] -= dt*((Fhd[currentIndex] - Fhd[leftIndex]) / dx + (Ghd[currentIndex] - Ghd[bottomIndex]) / dy);
-//	hud[currentIndexH] -= dt*((Fhud[currentIndex] - Fhud[leftIndex]) / dx + (Ghud[currentIndex] - Ghud[bottomIndex]) / dy + Bud[currentIndexH] / dx);
-//	hvd[currentIndexH] -= dt*((Fhvd[currentIndex] - Fhvd[leftIndex]) / dx + (Ghvd[currentIndex] - Ghvd[bottomIndex]) / dy + Bvd[currentIndexH] / dy);
-//}
-
-__global__ void eulerTimestep_child_kernel(int* td, int recLevel, int maxRecursion, int cellStartX, int cellStartY, float* hd, float* hud, float* hvd, float* Fhd, float* Fhud, float* Fhvd, float* Ghd, float* Ghud, float* Ghvd, float* Bud, float* Bvd, int width, int height, float dt, float dx, float dy)
+__global__ void eulerTimestepPixel_kernel(int xOff, int yOff, int sizeX, int sizeY, float* hd, float* hud, float* hvd, float* Fhd, float* Fhud, float* Fhvd, float* Ghd, float* Ghud, float* Ghvd, float* Bud, float* Bvd, int width, int height, float dt, float dx, float dy)
 {
-	int i = threadIdx.x + blockIdx.x * blockDim.x;
-	int j = threadIdx.y + blockIdx.y * blockDim.y;
-	const int haloOffset = 1;
-	
-	//are we inside the child cell?
-	const int ccellExtX = getCellExt(gridDim.x * blockDim.x, maxRecursion - recLevel);
-	const int ccellExtY = getCellExt(gridDim.y * blockDim.y, maxRecursion - recLevel);
-	if (i * ccellExtX >= getCellExt(gridDim.x * blockDim.x, maxRecursion - recLevel + 1) || j * ccellExtY >= getCellExt(gridDim.y * blockDim.y, maxRecursion - recLevel + 1))
+	int i = threadIdx.x + blockIdx.x * blockDim.x + xOff;
+	int j = threadIdx.y + blockIdx.y * blockDim.y + yOff;
+
+	if (i >= sizeX || j >= sizeY)
 		return;
 
-	unsigned int ccellStartX = i * ccellExtX + cellStartX;
-	unsigned int ccellStartY = j * ccellExtY + cellStartY;
+	const int currentIndexH = li(width, i, j);
+	const int currentIndex = li(width - 1, i, j);
+	const int leftIndex = li(width - 1, i - 1, j);
+	const int bottomIndex = li(width - 1, i, j - 1);
 
-	//are we inside the computation area?
-	if (ccellStartX >= width - haloOffset || ccellStartY >= height - haloOffset)
-		return;
-
-	//do we need to refine?
-	if (td[li(width, ccellStartX, ccellStartY)] > recLevel)
-	{
-		//we need to refine
-		//dim3 gridSize(1, 1);
-		eulerTimestep_child_kernel << <gridDim, blockDim >> >(td, recLevel + 1, maxRecursion, ccellStartX, ccellStartY, hd, hud, hvd, Fhd, Fhud, Fhvd, Ghd, Ghud, Ghvd, Bud, Bvd, width, height, dt, dx, dy);
-	}
-	else
-	{
-		//compute net updates
-		const int currentIndexH = li(width, ccellStartX, ccellStartY);
-
-		//read out current values:
-		float currentH = hd[currentIndexH];
-		float currentHu = hud[currentIndexH];
-		float currentHv = hvd[currentIndexH];
-		
-		//update with the bathymetry source term: TODO look into this
-		currentHu -= dt * Bud[currentIndexH] / (dx * ccellExtX);
-		currentHv -= dt * Bvd[currentIndexH] / (dy * ccellExtY);
-
-		//update with horizontal fluxes Fh(u/v)
-		const float Fh_right = sumRectLoop<float>(Fhd, width - 1, height - 1, ccellStartX + ccellExtX - 1, ccellStartY, 1, ccellExtY);
-		const float Fh_left = sumRectLoop<float>(Fhd, width - 1, height - 1, ccellStartX - 1, ccellStartY, 1, ccellExtY);
-		const float Fhu_right = sumRectLoop<float>(Fhud, width - 1, height - 1, ccellStartX + ccellExtX - 1, ccellStartY, 1, ccellExtY);
-		const float Fhu_left = sumRectLoop<float>(Fhud, width - 1, height - 1, ccellStartX - 1, ccellStartY, 1, ccellExtY);
-		const float Fhv_right = sumRectLoop<float>(Fhvd, width - 1, height - 1, ccellStartX + ccellExtX - 1, ccellStartY, 1, ccellExtY);
-		const float Fhv_left = sumRectLoop<float>(Fhvd, width - 1, height - 1, ccellStartX - 1, ccellStartY, 1, ccellExtY);
-
-		currentH -= dt * (Fh_right - Fh_left) / (dx * ccellExtX); //TODO: really multiply with ccellExtX?
-		currentHu -= dt * (Fhu_right - Fhu_left) / (dx * ccellExtX);
-		currentHv -= dt * (Fhv_right - Fhv_left) / (dx * ccellExtX);
-		
-		//update with vertical fluxes Gh(u/v)
-		const float Gh_top = sumRectLoop<float>(Ghd, width - 1, height - 1, ccellStartX, ccellStartY + ccellExtY - 1, ccellExtX, 1);
-		const float Gh_bottom = sumRectLoop<float>(Ghd, width - 1, height - 1, ccellStartX, ccellStartY - 1, ccellExtX, 1);
-		const float Ghu_top = sumRectLoop<float>(Ghud, width - 1, height - 1, ccellStartX, ccellStartY + ccellExtY - 1, ccellExtX, 1);
-		const float Ghu_bottom = sumRectLoop<float>(Ghud, width - 1, height - 1, ccellStartX, ccellStartY - 1, ccellExtX, 1);
-		const float Ghv_top = sumRectLoop<float>(Ghvd, width - 1, height - 1, ccellStartX, ccellStartY + ccellExtY - 1, ccellExtX, 1);
-		const float Ghv_bottom = sumRectLoop<float>(Ghvd, width - 1, height - 1, ccellStartX, ccellStartY - 1, ccellExtX, 1);
-
-		currentH -= dt * (Gh_top - Gh_bottom) / (dy * ccellExtY);
-		currentHu -= dt * (Ghu_top - Ghu_bottom) / (dy * ccellExtY);
-		currentHv -= dt * (Ghv_top - Ghv_bottom) / (dy * ccellExtY);
-
-		//fill whole child rect with new values
-		fillRectLoop<float>(hd, width, height, ccellStartX, ccellStartY, ccellExtX, ccellExtY, currentH);
-		fillRectLoop<float>(hud, width, height, ccellStartX, ccellStartY, ccellExtX, ccellExtY, currentHu);
-		fillRectLoop<float>(hvd, width, height, ccellStartX, ccellStartY, ccellExtX, ccellExtY, currentHv);
-	}
+	hd[currentIndexH] -= dt*((Fhd[currentIndex] - Fhd[leftIndex]) / dx + (Ghd[currentIndex] - Ghd[bottomIndex]) / dy);
+	hud[currentIndexH] -= dt*((Fhud[currentIndex] - Fhud[leftIndex]) / dx + (Ghud[currentIndex] - Ghud[bottomIndex]) / dy + Bud[currentIndexH] / dx);
+	hvd[currentIndexH] -= dt*((Fhvd[currentIndex] - Fhvd[leftIndex]) / dx + (Ghvd[currentIndex] - Ghvd[bottomIndex]) / dy + Bvd[currentIndexH] / dy);
 }
 
-__global__ void eulerTimestep_parent_kernel(int* td, int maxRecursion, float* hd, float* hud, float* hvd, float* Fhd, float* Fhud, float* Fhvd, float* Ghd, float* Ghud, float* Ghvd, float* Bud, float* Bvd, int width, int height, float dt, float dx, float dy)
+__global__ void eulerTimestep_kernel(int xOff, int yOff, int d, int depth, 
+	int width, int height, 
+	int* td, float* hd, float* hud, float* hvd, 
+	float* Fhd, float* Fhud, float* Fhvd, 
+	float* Ghd, float* Ghud, float* Ghvd, 
+	float* Bud, float* Bvd, 
+	float dt, float dx, float dy)
 {
-	int i = threadIdx.x + blockIdx.x * blockDim.x;
-	int j = threadIdx.y + blockIdx.y * blockDim.y;
-	const int haloOffset = 1;
+	xOff += blockIdx.x * d;
+	yOff += blockIdx.y * d;
+	//TODO: use reduction to determine the sum of border fluxes
 
-	unsigned int cellStartX = i * getCellExt(gridDim.x * blockDim.x, maxRecursion - 1) + haloOffset;
-	unsigned int cellStartY = j * getCellExt(gridDim.y * blockDim.y, maxRecursion - 1) + haloOffset;
-
-	if (cellStartX >= width - haloOffset || cellStartX >= height - haloOffset)
-		return;
-
-	const int cellExtX = getCellExt(gridDim.x * blockDim.x, maxRecursion - 1);
-	const int cellExtY = getCellExt(gridDim.y * blockDim.y, maxRecursion - 1);
-	//do we need to refine?
-	if (td[li(width, cellStartX, cellStartY)] > 1)
+	if (threadIdx.x == 0 && threadIdx.y == 0)
 	{
-		//we need to refine
-		//dim3 gridSize(1, 1);
-		eulerTimestep_child_kernel << <gridDim, blockDim >> >(td, 2, maxRecursion, cellStartX, cellStartY, hd, hud, hvd, Fhd, Fhud, Fhvd, Ghd, Ghud, Ghvd, Bud, Bvd, width, height, dt, dx, dy);
-	}
-	else
-	{
-		//compute net updates
-		const int currentIndexH = li(width, cellStartX, cellStartY);
-
-		//read out current values:
-		float currentH = hd[currentIndexH];
-		float currentHu = hud[currentIndexH];
-		float currentHv = hvd[currentIndexH];
-		
-		//update with the bathymetry source term: TODO look into this
-		currentHu -= dt * Bud[currentIndexH] / (dx * cellExtX);
-		currentHv -= dt * Bvd[currentIndexH] / (dy * cellExtY);
-
-		//update with horizontal fluxes Fh(u/v)
-		const float Fh_right = sumRectLoop<float>(Fhd, width - 1, height - 1, cellStartX + cellExtX - 1, cellStartY, 1, cellExtY);
-		const float Fh_left = sumRectLoop<float>(Fhd, width - 1, height - 1, cellStartX - 1, cellStartY, 1, cellExtY);
-		const float Fhu_right = sumRectLoop<float>(Fhud, width - 1, height - 1, cellStartX + cellExtX - 1, cellStartY, 1, cellExtY);
-		const float Fhu_left = sumRectLoop<float>(Fhud, width - 1, height - 1, cellStartX - 1, cellStartY, 1, cellExtY);
-		const float Fhv_right = sumRectLoop<float>(Fhvd, width - 1, height - 1, cellStartX + cellExtX - 1, cellStartY, 1, cellExtY);
-		const float Fhv_left = sumRectLoop<float>(Fhvd, width - 1, height - 1, cellStartX - 1, cellStartY, 1, cellExtY);
-
-		currentH -= dt * (Fh_right - Fh_left) / (dx * cellExtX); //TODO: really multiply with ccellExtX?
-		currentHu -= dt * (Fhu_right - Fhu_left) / (dx * cellExtX);
-		currentHv -= dt * (Fhv_right - Fhv_left) / (dx * cellExtX);
-		
-		//update with vertical fluxes Gh(u/v)
-		const float Gh_top = sumRectLoop<float>(Ghd, width - 1, height - 1, cellStartX, cellStartY + cellExtY - 1, cellExtX, 1);
-		const float Gh_bottom = sumRectLoop<float>(Ghd, width - 1, height - 1, cellStartX, cellStartY - 1, cellExtX, 1);
-		const float Ghu_top = sumRectLoop<float>(Ghud, width - 1, height - 1, cellStartX, cellStartY + cellExtY - 1, cellExtX, 1);
-		const float Ghu_bottom = sumRectLoop<float>(Ghud, width - 1, height - 1, cellStartX, cellStartY - 1, cellExtX, 1);
-		const float Ghv_top = sumRectLoop<float>(Ghvd, width - 1, height - 1, cellStartX, cellStartY + cellExtY - 1, cellExtX, 1);
-		const float Ghv_bottom = sumRectLoop<float>(Ghvd, width - 1, height - 1, cellStartX, cellStartY - 1, cellExtX, 1);
-
-		currentH -= dt * (Gh_top - Gh_bottom) / (dy * cellExtY);
-		currentHu -= dt * (Ghu_top - Ghu_bottom) / (dy * cellExtY);
-		currentHv -= dt * (Ghv_top - Ghv_bottom) / (dy * cellExtY);
-
-		//fill whole child rect with new values
-		fillRectLoop<float>(hd, width, height, cellStartX, cellStartY, cellExtX, cellExtY, currentH);
-		fillRectLoop<float>(hud, width, height, cellStartX, cellStartY, cellExtX, cellExtY, currentHu);
-		fillRectLoop<float>(hvd, width, height, cellStartX, cellStartY, cellExtX, cellExtY, currentHv);
+		int treeVal = td[li(width, xOff, yOff)];
+		if (treeVal == depth)
+		{
+			//TODO: one big cell, just fill using the border fluxes sum computed above
+		}
+		else if (depth + 1 < MAX_DEPTH)
+		{
+			//subdivide recursively
+			dim3 bs(BX, BY), grid(SUBDIV, SUBDIV);
+			eulerTimestep_kernel << < grid, bs >> > (xOff, yOff, d / SUBDIV, depth + 1, width, height, td, hd, hud, hvd, Fhd, Fhud, Fhvd, Ghd, Ghud, Ghvd, Bud, Bvd, dt, dx, dy);
+		}
+		else
+		{
+			//leaf, per pixel kernel
+			dim3 bs(BX, BY), grid(divUp(d, BX), divUp(d, BY));
+			eulerTimestepPixel_kernel << <grid, bs >> >(xOff, yOff, d, d, hd, hud, hvd, Fhd, Fhud, Fhvd, Ghd, Ghud, Ghvd, Bud, Bvd, width, height, dt, dx, dy);
+		}
 	}
 }
 
@@ -499,12 +396,9 @@ float SWE::eulerTimestep()
 {
 	computeFluxes();
 
-	//dim3 gridSize = dim3(divUp(nx, blockSize.x), divUp(ny, blockSize.y));
-	//eulerTimestep_kernel << <gridSize, blockSize >> >(hd, hud, hvd, Fhd, Fhud, Fhvd, Ghd, Ghud, Ghvd, Bud, Bvd, nx + 2, ny + 2, dt, dx, dy);
-	//dim3 gridSize = dim3(divUp(nx, getCellExt(blockSize.x, maxRecursion)), divUp(ny, getCellExt(blockSize.y, maxRecursion)));
-	dim3 block(8, 8);
-	dim3 grid(8, 8);
-	eulerTimestep_parent_kernel << <grid, block >> >(td, maxRecursion, hd, hud, hvd, Fhd, Fhud, Fhvd, Ghd, Ghud, Ghvd, Bud, Bvd, nx + 2, ny + 2, dt, dx, dy);
+	dim3 grid(INIT_SUBDIV, INIT_SUBDIV);
+	dim3 block(BX, BY);
+	eulerTimestep_kernel << <grid, block >> >(1, 1, nx / INIT_SUBDIV, 0, nx, ny, td, hd, hud, hvd, Fhd, Fhud, Fhvd, Ghd, Ghud, Ghvd, Bud, Bvd, dt, dx, dy);
 
 	return dt;
 }

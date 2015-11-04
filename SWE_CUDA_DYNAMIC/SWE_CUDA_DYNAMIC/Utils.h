@@ -1,6 +1,16 @@
 #include <cuda_runtime.h>
 #include <device_launch_parameters.h>
 
+#define cucheck_dev(call) \
+{\
+	cudaError_t res = (call);\
+	if(res != cudaSuccess) {\
+		const char* err_str = cudaGetErrorString(res);\
+		printf("%s (%d): %s (%d) in %s", __FILE__, __LINE__, err_str, res, #call);\
+		assert(0);\
+	}\
+}
+
 //linear index helper function
 inline __device__ __host__ unsigned int li(unsigned int width, unsigned int x, unsigned int y)
 {
