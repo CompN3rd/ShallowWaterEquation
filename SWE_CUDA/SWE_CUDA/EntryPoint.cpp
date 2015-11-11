@@ -65,7 +65,7 @@ int main(int argc, char** argv)
 		simulationTime += t2 - t1;
 
 		cout << "Writing output file: water level at time " << t << endl;
-		//swe->writeVTKFile(swe->generateFileName(basename, i));
+		swe->writeVTKFile(swe->generateFileName(basename, i));
 	}
 
 	checkCudaErrors(cudaDeviceSynchronize());

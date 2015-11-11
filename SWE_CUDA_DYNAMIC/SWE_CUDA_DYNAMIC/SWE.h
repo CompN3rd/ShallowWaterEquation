@@ -88,6 +88,7 @@ private:
 	void computeBathymetrySources();
 	float eulerTimestep();
 	float getMaxTimestep(float cfl_number = 0.5f);
+	void computeRefinement();
 
 	int nx, ny;
 	float dx, dy, dt, g;

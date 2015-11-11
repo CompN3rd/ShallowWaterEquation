@@ -34,7 +34,7 @@ SWE::SWE(int _nx, int _ny, float _dx, float _dy, float _g, int maxRecursion, int
 
 	//device arrays
 	checkCudaErrors(cudaMalloc(&td, variableSize * sizeof(int)));
-	setTree(maxRecursion); //set the tree to the finest recursion
+	setTree(MAX_DEPTH); //set the tree to the finest recursion
 
 	checkCudaErrors(cudaMalloc(&hd, variableSize * sizeof(float)));
 	checkCudaErrors(cudaMalloc(&hud, variableSize * sizeof(float)));
@@ -80,10 +80,6 @@ __global__ void setTree_kernel(int* td, int width, int height, int layer)
 	int y = threadIdx.y + blockIdx.y * blockDim.y;
 
 	if (x >= width || y >= height)
-		return;
-
-	td[li(width, x, y)] = layer;
-	if(x >= width || y >= height)
 		return;
 
 	td[li(width, x, y)] = layer;
@@ -340,12 +336,18 @@ void SWE::computeBathymetrySources()
 }
 
 //-----------------------------------------------------------------------------------------------------------------------------
-__global__ void eulerTimestepPixel_kernel(int xOff, int yOff, int sizeX, int sizeY, float* hd, float* hud, float* hvd, float* Fhd, float* Fhud, float* Fhvd, float* Ghd, float* Ghud, float* Ghvd, float* Bud, float* Bvd, int width, int height, float dt, float dx, float dy)
+__global__ void eulerTimestepPixel_kernel(int xOff, int yOff, int d, float* hd, float* hud, float* hvd, float* Fhd, float* Fhud, float* Fhvd, float* Ghd, float* Ghud, float* Ghvd, float* Bud, float* Bvd, int width, int height, float dt, float dx, float dy)
 {
-	int i = threadIdx.x + blockIdx.x * blockDim.x + xOff;
-	int j = threadIdx.y + blockIdx.y * blockDim.y + yOff;
+	int i = threadIdx.x + blockIdx.x * blockDim.x;
+	int j = threadIdx.y + blockIdx.y * blockDim.y;
 
-	if (i >= sizeX || j >= sizeY)
+	if (i >= d || j >= d)
+		return;
+
+	i += xOff;
+	j += yOff;
+
+	if (i >= width - 1 || j >= width - 1)
 		return;
 
 	const int currentIndexH = li(width, i, j);
@@ -368,14 +370,46 @@ __global__ void eulerTimestep_kernel(int xOff, int yOff, int d, int depth,
 {
 	xOff += blockIdx.x * d;
 	yOff += blockIdx.y * d;
-	//TODO: use reduction to determine the sum of border fluxes
+	int treeVal = td[li(width, xOff, yOff)];
+
+	float Fhd_right, Fhd_left, Ghd_top, Ghd_bottom,
+		Fhud_right, Fhud_left, Ghud_top, Ghud_bottom,
+		Fhvd_right, Fhvd_left, Ghvd_top, Ghvd_bottom;
+
+	if (treeVal == depth)
+	{
+		Fhd_right = sumLine(Fhd, width - 1, height - 1, xOff + d, yOff, d, false);
+		Fhd_left = sumLine(Fhd, width - 1, height - 1, xOff - 1, yOff, d, false);
+		Ghd_top = sumLine(Ghd, width - 1, height - 1, xOff, yOff + d, d, true);
+		Ghd_bottom = sumLine(Ghd, width - 1, height - 1, xOff, yOff - 1, d, true);
+
+		Fhud_right = sumLine(Fhud, width - 1, height - 1, xOff + d, yOff, d, false);
+		Fhud_left = sumLine(Fhud, width - 1, height - 1, xOff - 1, yOff, d, false);
+		Ghud_top = sumLine(Ghud, width - 1, height - 1, xOff, yOff + d, d, true);
+		Ghud_bottom = sumLine(Ghud, width - 1, height - 1, xOff, yOff - 1, d, true);
+
+		Fhvd_right = sumLine(Fhvd, width - 1, height - 1, xOff + d, yOff, d, false);
+		Fhvd_left = sumLine(Fhvd, width - 1, height - 1, xOff - 1, yOff, d, false);
+		Ghvd_top = sumLine(Ghvd, width - 1, height - 1, xOff, yOff + d, d, true);
+		Ghvd_bottom = sumLine(Ghvd, width - 1, height - 1, xOff, yOff - 1, d, true);
+	}
 
 	if (threadIdx.x == 0 && threadIdx.y == 0)
 	{
-		int treeVal = td[li(width, xOff, yOff)];
 		if (treeVal == depth)
 		{
-			//TODO: one big cell, just fill using the border fluxes sum computed above
+			float currentH = hd[li(width, xOff, yOff)];
+			float currentHu = hud[li(width, xOff, yOff)];
+			float currentHv = hvd[li(width, xOff, yOff)];
+			
+			currentH -= dt * ((Fhd_right - Fhd_left) / dx + (Ghd_top - Ghd_bottom) / dy);
+			currentHu -= dt * ((Fhud_right - Fhud_left) / dx + (Ghud_top - Ghud_bottom) / dy); //TODO: add bathymetry
+			currentHv -= dt * ((Fhvd_right - Fhvd_left) / dx + (Ghvd_top - Ghvd_bottom) / dy);
+
+			//fill cell with calculated updates
+			fillRectDynamic<float>(hd, width, height, xOff, yOff, d, d, currentH);
+			fillRectDynamic<float>(hud, width, height, xOff, yOff, d, d, currentHu);
+			fillRectDynamic<float>(hvd, width, height, xOff, yOff, d, d, currentHv);
 		}
 		else if (depth + 1 < MAX_DEPTH)
 		{
@@ -387,7 +421,7 @@ __global__ void eulerTimestep_kernel(int xOff, int yOff, int d, int depth,
 		{
 			//leaf, per pixel kernel
 			dim3 bs(BX, BY), grid(divUp(d, BX), divUp(d, BY));
-			eulerTimestepPixel_kernel << <grid, bs >> >(xOff, yOff, d, d, hd, hud, hvd, Fhd, Fhud, Fhvd, Ghd, Ghud, Ghvd, Bud, Bvd, width, height, dt, dx, dy);
+			eulerTimestepPixel_kernel << <grid, bs >> >(xOff, yOff, d, hd, hud, hvd, Fhd, Fhud, Fhvd, Ghd, Ghud, Ghvd, Bud, Bvd, width, height, dt, dx, dy);
 		}
 	}
 }
@@ -398,7 +432,13 @@ float SWE::eulerTimestep()
 
 	dim3 grid(INIT_SUBDIV, INIT_SUBDIV);
 	dim3 block(BX, BY);
-	eulerTimestep_kernel << <grid, block >> >(1, 1, nx / INIT_SUBDIV, 0, nx, ny, td, hd, hud, hvd, Fhd, Fhud, Fhvd, Ghd, Ghud, Ghvd, Bud, Bvd, dt, dx, dy);
+	eulerTimestep_kernel << <grid, block >> >(1, 1, nx / INIT_SUBDIV, 0, 
+		nx + 2, ny + 2, 
+		td, hd, hud, hvd, 
+		Fhd, Fhud, Fhvd, 
+		Ghd, Ghud, Ghvd, 
+		Bud, Bvd, 
+		dt, dx, dy);
 
 	return dt;
 }
@@ -450,6 +490,17 @@ float SWE::getMaxTimestep(float cfl_number)
 	return cfl_number * fminf(dx, dy) / maximumWaveSpeed;
 }
 
+__global__ void computeRefinementKernel()
+{
+	
+}
+
+void SWE::computeRefinement()
+{
+	dim3 grid(INIT_SUBDIV, INIT_SUBDIV);
+	dim3 block(BX, BY);
+	computeRefinementKernel << <grid, block >> >();
+}
 
 float SWE::simulate(float tStart, float tEnd)
 {
