@@ -415,13 +415,13 @@ __global__ void eulerTimestep_kernel(int xOff, int yOff, int d, int depth,
 		{
 			//subdivide recursively
 			dim3 bs(BX, BY), grid(SUBDIV, SUBDIV);
-			eulerTimestep_kernel << < grid, bs >> > (xOff, yOff, d / SUBDIV, depth + 1, width, height, td, hd, hud, hvd, Fhd, Fhud, Fhvd, Ghd, Ghud, Ghvd, Bud, Bvd, dt, dx, dy);
+			eulerTimestep_kernel << < grid, bs >> > (xOff, yOff, d / SUBDIV, depth + 1, width, height, td, hd, hud, hvd, Fhd, Fhud, Fhvd, Ghd, Ghud, Ghvd, Bud, Bvd, dt, dx / SUBDIV, dy / SUBDIV);
 		}
 		else
 		{
 			//leaf, per pixel kernel
 			dim3 bs(BX, BY), grid(divUp(d, BX), divUp(d, BY));
-			eulerTimestepPixel_kernel << <grid, bs >> >(xOff, yOff, d, hd, hud, hvd, Fhd, Fhud, Fhvd, Ghd, Ghud, Ghvd, Bud, Bvd, width, height, dt, dx, dy);
+			eulerTimestepPixel_kernel << <grid, bs >> >(xOff, yOff, d, hd, hud, hvd, Fhd, Fhud, Fhvd, Ghd, Ghud, Ghvd, Bud, Bvd, width, height, dt, dx / SUBDIV, dy / SUBDIV);
 		}
 	}
 }
@@ -438,7 +438,7 @@ float SWE::eulerTimestep()
 		Fhd, Fhud, Fhvd, 
 		Ghd, Ghud, Ghvd, 
 		Bud, Bvd, 
-		dt, dx, dy);
+		dt, dx * nx / INIT_SUBDIV, dy * nx / INIT_SUBDIV);
 
 	return dt;
 }
