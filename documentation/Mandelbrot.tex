@@ -190,7 +190,43 @@
 	\end{minted}
 \end{frame}
 
+\begin{frame}[fragile]{Details of the MS Algorithm}
+	The first part computes the border dwell using parallel block reduction (later more), this border dwell is then known to the first thread in the block
+	\begin{minted}{c++}
+		int common_dwell = border_dwell(w, h, cmin, cmax, x0, y0, d);
+	\end{minted}
+	This thread then decides the next step
+	\begin{minted}{c++}
+		if (threadIdx.x == 0 && threadIdx.y == 0) {
+	\end{minted}
+	If the border dwell is uniform, then the whole block area can be filled using a sub-kernel call
+	\begin{minted}{c++}
+		if (common_dwell != DIFF_DWELL) 
+			dwell_fill<<<grid, bs>>> (dwells, w, x0, y0, d, comm_dwell);
+	\end{minted}
+\end{frame}
+
+\begin{frame}[fragile]{Details continued}
+	If the dwell is non-uniform and we can still divide the area (we don't have reached \texttt{MAX\_DEPTH} and we still have enough pixels to justify the division), we divide the area in smaller cells
+	\begin{minted}{c++}
+		else if (depth + 1 > MAX_DEPTH && d / SUBDIV < MIN_SIZE)
+			mandelbrot_block_k<<<grid, bs>>> (dwells, w, h, cmin, cmax, x0, y0, d / SUBDIV, depth+1);
+	\end{minted} 
+	This uses a kernel-call from inside a \texttt{\_\_global\_\_}-kernel, which is an example for dynamic parallelism.\\
+	Also note that this sub-kernel is only started by the first (master) thread of each block. This allows for a balance between grid-size (should be big enough) and number of grids (shouldn't be too many).
+\end{frame}
+
+\begin{frame}[fragile]{Details continued}
+	If we can't justify recursive subdivision anymore, we start the per-pixel kernel for all pixels in the region
+	\begin{minted}{c++}
+	else
+		mandelbrot_pixel_k<<<grid, bs>>> (dwells, w, h, cmin, cmax, x0, y0, d);
+	\end{minted}
+	Note that here the notion of 'cell' changes, for all other grid invocations a thread-block handled a cell (several pixels), here a single thread handles a cell (single pixel).
+\end{frame}
+
 \begin{frame}[fragile]{Dwell Reduction}
+	This code is used in a per-block reduction kernel later on that checks, whether all border pixels of a region have the same dwell
 	\begin{minted}{c++}
 	/** binary operation for common dwell "reduction": MAX_DWELL + 1 = neutral
 	element, -1 = dwells are different */
@@ -268,6 +304,45 @@
 	\\
 	One can also compile and link in a single step:\\
 	\texttt{nvcc -arch=sm\_35 -rdc=true myprog.cu -lcudadevrt -o myprog.o}
+\end{frame}
+
+\section{Advanced Dynamic Parallelism Principles}
+
+\begin{frame}{Advanced Dynamic Parallelism Principles}
+	\begin{itemize}
+		\item A group of blocks of threads that are running a kernel is called a \textit{grid}
+		\item Using dynamic parallelism a \textit{parent grid} launches kernels in \textit{child grids}
+		\item A child grid inherits certain attributes
+		\begin{itemize}
+			\item L1 cache
+			\item shared memory configuration
+			\item stack size
+		\end{itemize}
+		\item Every thread that encounters a kernel launch executes it; if the parent grid has 128 blocks with 64 threads each and no control flow around a child kernel launch, this will result in 8192 child grid launches
+	\end{itemize}
+\end{frame}
+
+\begin{frame}
+	Grid launches are \textit{fully nested}: Child grids will always complete before the parent grid that launched them, even without explicit synchronization
+	\begin{figure}
+		\includegraphics[width=0.7\textwidth]{nesting-of-grids.png}
+	\end{figure}
+	If the parent kernel needs results of the child kernel to continue, explicit synchronization (\texttt{cudaDeviceSynchronize()} has to be called
+\end{frame}
+
+\begin{frame}{Recursion Depth and Device Limits}
+	Recursive programs usually have an associated \textit{depth}. For dynamic parallelism, there are two concepts of depth
+	\begin{itemize}
+		\item \textit{nesting depth} is the deepest nesting level of recursive grid launches (host launches have depth 0); the hardware limit for Compute Capability 3.5 is 24
+		\item \textit{synchronization depth} deepest nesting level at which \texttt{cudaDeviceSynchronize()} is called; to get this value, call \texttt{cudaDeviceGetLimit(outPtr, cudaLimitDevRuntimeSyncDepth)}; to change it, use \texttt{cudaDeviceSetLimit(...)}
+	\end{itemize}
+	
+\end{frame}
+
+\begin{frame}{Links}
+	\url{http://devblogs.nvidia.com/parallelforall/cuda-dynamic-parallelism-api-principles/}\\
+	
+	\url{http://devblogs.nvidia.com/parallelforall/introduction-cuda-dynamic-parallelism/}
 \end{frame}
 
 \end{document}

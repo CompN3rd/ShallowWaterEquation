@@ -407,9 +407,9 @@ __global__ void eulerTimestep_kernel(int xOff, int yOff, int d, int depth,
 			currentHv -= dt * ((Fhvd_right - Fhvd_left) / dx + (Ghvd_top - Ghvd_bottom) / dy);
 
 			//fill cell with calculated updates
-			fillRectDynamic<float>(hd, width, height, xOff, yOff, d, d, currentH);
-			fillRectDynamic<float>(hud, width, height, xOff, yOff, d, d, currentHu);
-			fillRectDynamic<float>(hvd, width, height, xOff, yOff, d, d, currentHv);
+			fillRectDynamic(hd, width, height, xOff, yOff, d, d, currentH);
+			fillRectDynamic(hud, width, height, xOff, yOff, d, d, currentHu);
+			fillRectDynamic(hvd, width, height, xOff, yOff, d, d, currentHv);
 		}
 		else if (depth + 1 < MAX_DEPTH)
 		{
@@ -490,16 +490,96 @@ float SWE::getMaxTimestep(float cfl_number)
 	return cfl_number * fminf(dx, dy) / maximumWaveSpeed;
 }
 
-__global__ void computeRefinementKernel()
+__global__ void computeRefinementFirstRecursionKernel(float* hd, float* hud, float* hvd, int* td, int d, float theta_cor, int width, int height)
 {
-	
+	//TODO: compute gradient of b + h and not only of h?
+	//TODO: how to compute P_q(G)?
+
+	//compute global starting point
+	const int i = threadIdx.x * SUBDIV + blockIdx.x * d + 1;
+	const int j = threadIdx.y * SUBDIV + blockIdx.y * d + 1;
+	const int tid = threadIdx.x + threadIdx.y * blockDim.x;
+
+	__shared__ float gradHNorm[BX * BY];
+	__shared__ float avgH[BX * BY];
+	__shared__ float avgHu[BX * BY];
+	__shared__ float avgHv[BX * BY];
+
+	float gradNorm = 0.0f;
+	float aH = 0.0f;
+	float aHu = 0.0f;
+	float aHv = 0.0f;
+	for (int xInd = i; xInd < i + SUBDIV; xInd++)
+	{
+		for (int yInd = j; yInd < j + SUBDIV; yInd++)
+		{
+			//using forward difference:
+			float dhdx = hd[li(width, xInd + 1, yInd)] - hd[li(width, xInd, yInd)];
+			float dhdy = hd[li(width, xInd, yInd + 1)] - hd[li(width, xInd, yInd)];
+
+			gradNorm += sqrtf(dhdx * dhdx + dhdy + dhdy);
+
+			aH += hd[li(width, xInd, yInd)];
+			aHu += hud[li(width, xInd, yInd)];
+			aHv += hvd[li(width, xInd, yInd)];
+		}
+	}
+	gradNorm /= (SUBDIV * SUBDIV);
+	gradHNorm[tid] = gradNorm;
+
+	aH /= (SUBDIV * SUBDIV);
+	avgH[tid] = aH;
+	aHu /= (SUBDIV * SUBDIV);
+	avgHu[tid] = aHu;
+	aHv /= (SUBDIV * SUBDIV);
+	avgHv[tid] = aHv;
+	__syncthreads();
+
+	//block reduce the gradHNorm and the average cell values:
+	for (int nt = BX * BY; nt > 1; nt /= 2)
+	{
+		if (tid < nt / 2)
+		{
+			gradHNorm[tid] += gradHNorm[tid + nt / 2];
+			avgH[tid] += avgH[tid + nt / 2];
+			avgHu[tid] += avgHu[tid + nt / 2];
+			avgHv[tid] += avgHv[tid + nt / 2];
+		}
+		__syncthreads();
+	}
+
+	gradHNorm[tid] /= (BX * BY);
+	avgH[tid] /= (BX * BY);
+	avgHu[tid] /= (BX * BY);
+	avgHv[tid] /= (BX * BY);
+
+	//thread with tid 0 now holds the average water gradient and averaged cell values
+	if (tid == 0)
+	{
+		//decide the content of the tree and the solution vector
+		if (gradHNorm[tid] >= theta_cor)
+		{
+			//no recoarsening, leave everything as is and write max_depth to tree
+			fillRectDynamic(td, width, height, i, j, d, d, MAX_DEPTH);
+		}
+		else
+		{
+			//coarsen the grid, write max_depth - 1 to tree and fill solution vector with averaged values
+			fillRectDynamic(td, width, height, i, j, d, d, MAX_DEPTH - 1);
+			fillRectDynamic(hd, width, height, i, j, d, d, avgH[tid]);
+			fillRectDynamic(hud, width, height, i, j, d, d, avgHu[tid]);
+			fillRectDynamic(hvd, width, height, i, j, d, d, avgHv[tid]);
+		}
+	}
 }
 
 void SWE::computeRefinement()
 {
-	dim3 grid(INIT_SUBDIV, INIT_SUBDIV);
+	dim3 grid(nx / (BX * SUBDIV), ny / (BY * SUBDIV));
 	dim3 block(BX, BY);
-	computeRefinementKernel << <grid, block >> >();
+	computeRefinementFirstRecursionKernel << <grid, block >> >(hd, hud, hvd, td, BX * SUBDIV, 2.0f, nx + 2, ny + 2);
+
+	//TODO: higher recursive levels
 }
 
 float SWE::simulate(float tStart, float tEnd)
@@ -509,6 +589,7 @@ float SWE::simulate(float tStart, float tEnd)
 	float t = tStart;
 	do
 	{
+		computeRefinement();
 		float tMax = getMaxTimestep();
 		setTimestep(tMax);
 		setBoundaryLayer();
