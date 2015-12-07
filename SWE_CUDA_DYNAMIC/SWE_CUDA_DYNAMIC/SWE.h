@@ -10,12 +10,12 @@
 #include <sstream>
 #include <limits>
 
-#define NX (16 * 512)
-#define NY (16 * 512)
+#define NX (16 * 64)
+#define NY (16 * 64)
 
 #define BX 16
 #define BY 16
-#define INIT_SUBDIV 32
+#define INIT_SUBDIV 4
 
 #define MAX_DEPTH 2
 #define SUBDIV 4
@@ -56,6 +56,7 @@ private:
 	float* h;
 	float* hu;
 	float* hv;
+	int* t;
 	float* b;
 
 	//parameter arrays on device
@@ -63,6 +64,7 @@ private:
 	int maxRecursion;
 
 	float* hd;
+	float* nghd;
 	float* hud;
 	float* hvd;
 	float* bd;

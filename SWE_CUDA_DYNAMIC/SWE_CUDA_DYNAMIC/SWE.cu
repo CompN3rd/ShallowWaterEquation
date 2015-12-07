@@ -1,6 +1,6 @@
 #include "SWE.h"
 #include "Utils.h"
-
+#include <algorithm>
 
 SWE::SWE(int _nx, int _ny, float _dx, float _dy, float _g, int maxRecursion, int blockX, int blockY)
 {
@@ -30,6 +30,7 @@ SWE::SWE(int _nx, int _ny, float _dx, float _dy, float _g, int maxRecursion, int
 	h = new float[variableSize];
 	hu = new float[variableSize];
 	hv = new float[variableSize];
+	t = new int[variableSize];
 	b = new float[variableSize];
 
 	//device arrays
@@ -37,11 +38,13 @@ SWE::SWE(int _nx, int _ny, float _dx, float _dy, float _g, int maxRecursion, int
 	setTree(MAX_DEPTH); //set the tree to the finest recursion
 
 	checkCudaErrors(cudaMalloc(&hd, variableSize * sizeof(float)));
+	checkCudaErrors(cudaMalloc(&nghd, variableSize * sizeof(float)));
 	checkCudaErrors(cudaMalloc(&hud, variableSize * sizeof(float)));
 	checkCudaErrors(cudaMalloc(&hvd, variableSize * sizeof(float)));
 	checkCudaErrors(cudaMalloc(&bd, variableSize * sizeof(float)));
 	checkCudaErrors(cudaMalloc(&Bud, variableSize * sizeof(float)));
 	checkCudaErrors(cudaMalloc(&Bvd, variableSize * sizeof(float)));
+	computeRefinement(); //set the tree and solution vector to the desired levels
 
 	const int flowSize = (nx + 1) * (ny + 1);
 	checkCudaErrors(cudaMalloc(&Fhd, flowSize * sizeof(float)));
@@ -58,9 +61,11 @@ SWE::~SWE()
 	delete[] h;
 	delete[] hu;
 	delete[] hv;
+	delete[] t;
 	delete[] b;
 	checkCudaErrors(cudaFree(td));
 	checkCudaErrors(cudaFree(hd));
+	checkCudaErrors(cudaFree(nghd));
 	checkCudaErrors(cudaFree(hud));
 	checkCudaErrors(cudaFree(hvd));
 	checkCudaErrors(cudaFree(bd));
@@ -104,7 +109,8 @@ void SWE::downloadSolution()
 	int numElem = (nx + 2) * (ny + 2);
 	checkCudaErrors(cudaMemcpyAsync(h, hd, numElem * sizeof(float), cudaMemcpyDeviceToHost));
 	checkCudaErrors(cudaMemcpyAsync(hu, hud, numElem * sizeof(float), cudaMemcpyDeviceToHost));
-	checkCudaErrors(cudaMemcpy(hv, hud, numElem * sizeof(float), cudaMemcpyDeviceToHost));
+	checkCudaErrors(cudaMemcpyAsync(hv, hud, numElem * sizeof(float), cudaMemcpyDeviceToHost));
+	checkCudaErrors(cudaMemcpy(t, td, numElem * sizeof(float), cudaMemcpyDeviceToHost));
 }
 
 void SWE::setInitialValues(float _h, float _u, float _v)
@@ -490,10 +496,9 @@ float SWE::getMaxTimestep(float cfl_number)
 	return cfl_number * fminf(dx, dy) / maximumWaveSpeed;
 }
 
-__global__ void computeRefinementFirstRecursionKernel(float* hd, float* hud, float* hvd, int* td, int d, float theta_cor, int width, int height)
+__global__ void computeRefinementFirstRecursionKernel(float* hd, float* hud, float* hvd, float* normGradH, int* td, int* d_levels, int d, float theta_cor, int width, int height)
 {
-	//TODO: compute gradient of b + h and not only of h?
-	//TODO: how to compute P_q(G)?
+	//TODO: compute gradient of b + h and not only of h!
 
 	//compute global starting point
 	const int i = threadIdx.x * SUBDIV + blockIdx.x * d + 1;
@@ -513,25 +518,16 @@ __global__ void computeRefinementFirstRecursionKernel(float* hd, float* hud, flo
 	{
 		for (int yInd = j; yInd < j + SUBDIV; yInd++)
 		{
-			//using forward difference:
-			float dhdx = hd[li(width, xInd + 1, yInd)] - hd[li(width, xInd, yInd)];
-			float dhdy = hd[li(width, xInd, yInd + 1)] - hd[li(width, xInd, yInd)];
-
-			gradNorm += sqrtf(dhdx * dhdx + dhdy + dhdy);
+			gradNorm += normGradH[li(width, xInd, yInd)];
 
 			aH += hd[li(width, xInd, yInd)];
 			aHu += hud[li(width, xInd, yInd)];
 			aHv += hvd[li(width, xInd, yInd)];
 		}
 	}
-	gradNorm /= (SUBDIV * SUBDIV);
 	gradHNorm[tid] = gradNorm;
-
-	aH /= (SUBDIV * SUBDIV);
 	avgH[tid] = aH;
-	aHu /= (SUBDIV * SUBDIV);
 	avgHu[tid] = aHu;
-	aHv /= (SUBDIV * SUBDIV);
 	avgHv[tid] = aHv;
 	__syncthreads();
 
@@ -548,14 +544,15 @@ __global__ void computeRefinementFirstRecursionKernel(float* hd, float* hud, flo
 		__syncthreads();
 	}
 
-	gradHNorm[tid] /= (BX * BY);
-	avgH[tid] /= (BX * BY);
-	avgHu[tid] /= (BX * BY);
-	avgHv[tid] /= (BX * BY);
+	gradHNorm[tid] /= (BX * BY * SUBDIV * SUBDIV);
+	avgH[tid] /= (BX * BY * SUBDIV * SUBDIV);
+	avgHu[tid] /= (BX * BY * SUBDIV * SUBDIV);
+	avgHv[tid] /= (BX * BY * SUBDIV * SUBDIV);
 
 	//thread with tid 0 now holds the average water gradient and averaged cell values
 	if (tid == 0)
 	{
+		printf("norm: %f\n", gradHNorm[tid]);
 		//decide the content of the tree and the solution vector
 		if (gradHNorm[tid] >= theta_cor)
 		{
@@ -565,6 +562,7 @@ __global__ void computeRefinementFirstRecursionKernel(float* hd, float* hud, flo
 		else
 		{
 			//coarsen the grid, write max_depth - 1 to tree and fill solution vector with averaged values
+			atomicAdd(d_levels + (MAX_DEPTH - 1), 1); //increase counter for this cell level
 			fillRectDynamic(td, width, height, i, j, d, d, MAX_DEPTH - 1);
 			fillRectDynamic(hd, width, height, i, j, d, d, avgH[tid]);
 			fillRectDynamic(hud, width, height, i, j, d, d, avgHu[tid]);
@@ -573,13 +571,81 @@ __global__ void computeRefinementFirstRecursionKernel(float* hd, float* hud, flo
 	}
 }
 
+__global__ void computeHigherRecursionKernel(float* hd, float* hud, float* hvd, float* normGradH, int* td, int* d_levels, int d, int level, int width, int height)
+{
+	//TODO: compute gradient of b + h and not only of h!
+	int i = d * (threadIdx.x + blockIdx.x * blockDim.x) + 1;
+	int j = d * (threadIdx.y + blockIdx.y * blockDim.y) + 1;
+
+	//check if all cells in a subdiv x subdiv grid are on the same level as this thread
+	for (int xOff = 0; xOff < SUBDIV; xOff++)
+	{
+		for (int yOff = 0; yOff < SUBDIV; yOff++)
+		{
+			//one subcell is on a too fine level to coarsen the grid
+			if (td[li(width, i + xOff * d / SUBDIV, j + yOff * d / SUBDIV)] > level)
+				return;
+		}
+	}
+}
+
+__global__ void computeNormOfGradient(float* hd, float* normGradH, int width, int height)
+{
+	int i = threadIdx.x + blockIdx.x * blockDim.x;
+	int j = threadIdx.x + blockIdx.x * blockDim.x;
+
+	if (i >= width || j >= height)
+		return;
+
+	//using central differences
+	float dhdx = 0.5f * (hd[li(width, min(i + 1, width - 1), j)] - hd[li(width, max(i - 1, 0), j)]);
+	float dhdy = 0.5f * (hd[li(width, i, min(j + 1, height - 1))] - hd[li(width, i, max(j - 1, 0))]);
+
+	normGradH[li(width, i, j)] = sqrtf(dhdx * dhdx + dhdy * dhdy);
+}
+
 void SWE::computeRefinement()
 {
+	int levelCount[MAX_DEPTH]; //number of cells for each level < maxLevel
+	int* d_levelCount;
+	checkCudaErrors(cudaMalloc(&d_levelCount, MAX_DEPTH * sizeof(int)));
+	checkCudaErrors(cudaMemset(d_levelCount, 0, MAX_DEPTH * sizeof(int)));
+
+	dim3 normBlock(BX, BY);
+	dim3 normGrid(divUp(nx + 2, normBlock.x), divUp(ny + 2, normBlock.y));
+	computeNormOfGradient << <normGrid, normBlock >> >(hd, nghd, nx + 2, ny + 2);
+
+	//each block computes a cell of size BX * SUBDIV
 	dim3 grid(nx / (BX * SUBDIV), ny / (BY * SUBDIV));
 	dim3 block(BX, BY);
-	computeRefinementFirstRecursionKernel << <grid, block >> >(hd, hud, hvd, td, BX * SUBDIV, 2.0f, nx + 2, ny + 2);
+	int d = BX * SUBDIV;
+	cout << "cellLength for level " << MAX_DEPTH - 1 << " : " << d << endl;
+	computeRefinementFirstRecursionKernel << <grid, block >> >(hd, hud, hvd, nghd, td, d_levelCount, d, 1e-20f, nx + 2, ny + 2);
 
-	//TODO: higher recursive levels
+	//higher recursive levels
+	for (int level = MAX_DEPTH - 1; level > 0; level--)
+	{
+	//	//TODO: compute new nghd
+	//	grid = dim3(grid.x / SUBDIV, grid.y / SUBDIV);
+		d *= SUBDIV;
+		cout << "cellLength for level " << level - 1 << " : " << d << endl;
+	//	//each thread computes a cell of size SUBDIV
+	//	dim3 gr(grid.x / block.x, grid.y / block.y);
+	//	computeHigherRecursionKernel << <gr, block >> >(hd, hud, hvd, td, d_levelCount, d, level, nx + 2, ny + 2);
+	}
+
+	checkCudaErrors(cudaMemcpy(levelCount, d_levelCount, MAX_DEPTH * sizeof(int), cudaMemcpyDeviceToHost));
+
+	int pixelCount = 0;
+	for (int l = 0; l < MAX_DEPTH; l++)
+	{
+		cout << "Num Cells at level " << l << " : " << levelCount[l] << endl;
+		pixelCount += levelCount[l] * d * d;
+		d /= SUBDIV;
+	}
+	cout << "Num Cells at finest level: " << (nx * ny) - pixelCount << endl;
+
+	checkCudaErrors(cudaFree(d_levelCount));
 }
 
 float SWE::simulate(float tStart, float tEnd)
@@ -589,12 +655,13 @@ float SWE::simulate(float tStart, float tEnd)
 	float t = tStart;
 	do
 	{
-		computeRefinement();
 		float tMax = getMaxTimestep();
 		setTimestep(tMax);
+		cout << "Iteration: " << iter << ", Timestep: " << tMax << endl;
 		setBoundaryLayer();
 		computeBathymetrySources();
 		t += eulerTimestep();
+		computeRefinement();
 		iter++;
 	} while (t < tEnd);
 
@@ -648,5 +715,10 @@ void SWE::writeVTKFile(string FileName)
 	for (int j = 1; j <= ny; j++)
 		for (int i = 1; i <= nx; i++)
 			Vtk_file << h[li(nx + 2, i, j)] + b[li(nx + 2, i, j)] << endl;
+	Vtk_file << "SCALARS TREE int 1" << endl;
+	Vtk_file << "LOOKUP_TABLE default" << endl;
+	for (int j = 1; j <= ny; j++)
+		for (int i = 1; i <= nx; i++)
+			Vtk_file << t[li(nx + 2, i, j)] << endl;
 	Vtk_file.close();
 }

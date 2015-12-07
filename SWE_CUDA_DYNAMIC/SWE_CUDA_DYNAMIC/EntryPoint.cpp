@@ -51,7 +51,7 @@ int main(int argc, char** argv)
 	basename = string(argv[1]);
 
 	cout << "Writing output file: water level at start" << endl;
-	//swe->writeVTKFile(swe->generateFileName(basename, 0));
+	swe->writeVTKFile(swe->generateFileName(basename, 0));
 
 	double simulationTime = 0.0;
 	float t = 0.0f;

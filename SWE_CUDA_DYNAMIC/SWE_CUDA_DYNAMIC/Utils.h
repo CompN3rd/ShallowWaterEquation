@@ -94,6 +94,27 @@ __device__ void fillRectDynamic(T* data, int width, int height, int startX, int 
 	fillRectDynamic_child<T> << <grid, block >> >(data, width, height, startX, startY, extX, extY, val);
 }
 
+template<typename T>
+__global__ void copyRectDynamic_child(T* data_out, T* data, int width, int height, int startX, int startY, int extX, int extY)
+{
+	int xoff = threadIdx.x + blockIdx.x * blockDim.x;
+	int yoff = threadIdx.y + blockIdx.y * blockDim.y;
+
+	if (xoff >= extX || yoff >= extY || startX + xoff >= width || startY + yoff >= height)
+		return;
+	
+	int ind = li(width, startX + xoff, startY + yoff);
+	data_out[ind] = data[ind];
+}
+
+template<typename T>
+__device__ void copyRectDynamic(T* data_out, T* data, int width, int height, int startX, int startY, int extX, int extY, int blockX = 16, int blockY = 16)
+{
+	dim3 block(blockX, blockY);
+	dim3 grid(divUp(min(extX, width - startX), block.x), divUp(min(extY, height - startY), block.y));
+	copyRectDynamic_child<T> << <grid, block >> >(data_out, data, width, height, startX, startY, extX, extY);
+}
+
 //--------------------------------------------------------------------------------------------------
 
 template<typename T>

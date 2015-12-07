@@ -23,7 +23,7 @@ float getWaterHeight(float x, float y)
 
 	//if (r < 0.1f) h = h + 1.0f;
 	//return (h > 0.0f) ? h : 0.0f;
-	return ((x - 0.5f) * (x - 0.5f) + (y - 0.5f) * (y - 0.5f) < 0.05f) ? 1 : 0.7;
+	return ((x - 0.5f) * (x - 0.5f) + (y - 0.5f) * (y - 0.5f) < 0.05f) ? 1.0f : 0.7f;
 }
 
 
@@ -36,7 +36,7 @@ int main(int argc, char** argv)
 	}
 
 	SWE* swe = new SWE(atoi(argv[1]), atoi(argv[2]), 1.0f/atof(argv[1]), 1.0f/atof(argv[2]));
-	cout << "nx: " << atoi(argv[1]) << "ny: " << atoi(argv[2]) << "dx: " << 1.0f / atof(argv[1]) << "dy: " << 1.0f / atof(argv[2]) << endl;
+	cout << "nx: " << atoi(argv[1]) << " ny: " << atoi(argv[2]) << " dx: " << 1.0f / atof(argv[1]) << " dy: " << 1.0f / atof(argv[2]) << endl;
 	swe->setInitialValues(&getWaterHeight, 0.0f, 0.0f);
 	swe->setBathymetry(&getBathymetry);
 	swe->setBoundaryType(WALL, WALL, WALL, WALL);
@@ -52,7 +52,7 @@ int main(int argc, char** argv)
 	basename = string(argv[3]);
 
 	cout << "Writing output file: water level at start" << endl;
-	//swe->writeVTKFile(swe->generateFileName(basename, 0));
+	swe->writeVTKFile(swe->generateFileName(basename, 0));
 
 	double simulationTime = 0.0;
 	float t = 0.0f;
