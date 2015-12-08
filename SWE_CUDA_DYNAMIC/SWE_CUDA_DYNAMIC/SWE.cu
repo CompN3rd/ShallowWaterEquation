@@ -28,6 +28,7 @@ SWE::SWE(int _nx, int _ny, float _dx, float _dy, float _g, int maxRecursion, int
 
 	const int variableSize = (nx + 2) * (ny + 2);
 	h = new float[variableSize];
+	ngh = new float[variableSize];
 	hu = new float[variableSize];
 	hv = new float[variableSize];
 	t = new int[variableSize];
@@ -44,7 +45,6 @@ SWE::SWE(int _nx, int _ny, float _dx, float _dy, float _g, int maxRecursion, int
 	checkCudaErrors(cudaMalloc(&bd, variableSize * sizeof(float)));
 	checkCudaErrors(cudaMalloc(&Bud, variableSize * sizeof(float)));
 	checkCudaErrors(cudaMalloc(&Bvd, variableSize * sizeof(float)));
-	computeRefinement(); //set the tree and solution vector to the desired levels
 
 	const int flowSize = (nx + 1) * (ny + 1);
 	checkCudaErrors(cudaMalloc(&Fhd, flowSize * sizeof(float)));
@@ -102,12 +102,14 @@ void SWE::uploadSolution()
 	checkCudaErrors(cudaMemcpyAsync(hd, h, numElem * sizeof(float), cudaMemcpyHostToDevice));
 	checkCudaErrors(cudaMemcpyAsync(hud, hu, numElem * sizeof(float), cudaMemcpyHostToDevice));
 	checkCudaErrors(cudaMemcpy(hvd, hu, numElem * sizeof(float), cudaMemcpyHostToDevice));
+	computeInitialRefinement(); //set the tree and solution vector to the desired levels
 }
 
 void SWE::downloadSolution()
 {
 	int numElem = (nx + 2) * (ny + 2);
 	checkCudaErrors(cudaMemcpyAsync(h, hd, numElem * sizeof(float), cudaMemcpyDeviceToHost));
+	checkCudaErrors(cudaMemcpyAsync(ngh, nghd, numElem * sizeof(float), cudaMemcpyDeviceToHost));
 	checkCudaErrors(cudaMemcpyAsync(hu, hud, numElem * sizeof(float), cudaMemcpyDeviceToHost));
 	checkCudaErrors(cudaMemcpyAsync(hv, hud, numElem * sizeof(float), cudaMemcpyDeviceToHost));
 	checkCudaErrors(cudaMemcpy(t, td, numElem * sizeof(float), cudaMemcpyDeviceToHost));
@@ -427,7 +429,7 @@ __global__ void eulerTimestep_kernel(int xOff, int yOff, int d, int depth,
 		{
 			//leaf, per pixel kernel
 			dim3 bs(BX, BY), grid(divUp(d, BX), divUp(d, BY));
-			eulerTimestepPixel_kernel << <grid, bs >> >(xOff, yOff, d, hd, hud, hvd, Fhd, Fhud, Fhvd, Ghd, Ghud, Ghvd, Bud, Bvd, width, height, dt, dx / SUBDIV, dy / SUBDIV);
+			eulerTimestepPixel_kernel << <grid, bs >> >(xOff, yOff, d, hd, hud, hvd, Fhd, Fhud, Fhvd, Ghd, Ghud, Ghvd, Bud, Bvd, width, height, dt, dx / (SUBDIV * BX), dy / (SUBDIV * BY));
 		}
 	}
 }
@@ -496,7 +498,7 @@ float SWE::getMaxTimestep(float cfl_number)
 	return cfl_number * fminf(dx, dy) / maximumWaveSpeed;
 }
 
-__global__ void computeRefinementFirstRecursionKernel(float* hd, float* hud, float* hvd, float* normGradH, int* td, int* d_levels, int d, float theta_cor, int width, int height)
+__global__ void computeInitialRefinementFirstRecursionKernel(float* hd, float* hud, float* hvd, float* normGradH, int* td, int* d_levels, int d, float theta_cor, int width, int height)
 {
 	//TODO: compute gradient of b + h and not only of h!
 
@@ -552,9 +554,8 @@ __global__ void computeRefinementFirstRecursionKernel(float* hd, float* hud, flo
 	//thread with tid 0 now holds the average water gradient and averaged cell values
 	if (tid == 0)
 	{
-		printf("norm: %f\n", gradHNorm[tid]);
 		//decide the content of the tree and the solution vector
-		if (gradHNorm[tid] >= theta_cor)
+		if (gradHNorm[tid] > theta_cor)
 		{
 			//no recoarsening, leave everything as is and write max_depth to tree
 			fillRectDynamic(td, width, height, i, j, d, d, MAX_DEPTH);
@@ -592,7 +593,7 @@ __global__ void computeHigherRecursionKernel(float* hd, float* hud, float* hvd, 
 __global__ void computeNormOfGradient(float* hd, float* normGradH, int width, int height)
 {
 	int i = threadIdx.x + blockIdx.x * blockDim.x;
-	int j = threadIdx.x + blockIdx.x * blockDim.x;
+	int j = threadIdx.y + blockIdx.y * blockDim.y;
 
 	if (i >= width || j >= height)
 		return;
@@ -604,7 +605,7 @@ __global__ void computeNormOfGradient(float* hd, float* normGradH, int width, in
 	normGradH[li(width, i, j)] = sqrtf(dhdx * dhdx + dhdy * dhdy);
 }
 
-void SWE::computeRefinement()
+void SWE::computeInitialRefinement()
 {
 	int levelCount[MAX_DEPTH]; //number of cells for each level < maxLevel
 	int* d_levelCount;
@@ -620,7 +621,7 @@ void SWE::computeRefinement()
 	dim3 block(BX, BY);
 	int d = BX * SUBDIV;
 	cout << "cellLength for level " << MAX_DEPTH - 1 << " : " << d << endl;
-	computeRefinementFirstRecursionKernel << <grid, block >> >(hd, hud, hvd, nghd, td, d_levelCount, d, 1e-20f, nx + 2, ny + 2);
+	computeInitialRefinementFirstRecursionKernel << <grid, block >> >(hd, hud, hvd, nghd, td, d_levelCount, d, 0.0f, nx + 2, ny + 2);
 
 	//higher recursive levels
 	for (int level = MAX_DEPTH - 1; level > 0; level--)
@@ -661,7 +662,7 @@ float SWE::simulate(float tStart, float tEnd)
 		setBoundaryLayer();
 		computeBathymetrySources();
 		t += eulerTimestep();
-		computeRefinement();
+		computeInitialRefinement();
 		iter++;
 	} while (t < tEnd);
 
@@ -715,6 +716,11 @@ void SWE::writeVTKFile(string FileName)
 	for (int j = 1; j <= ny; j++)
 		for (int i = 1; i <= nx; i++)
 			Vtk_file << h[li(nx + 2, i, j)] + b[li(nx + 2, i, j)] << endl;
+	Vtk_file << "SCALARS NORM_GRAD_H float 1" << endl;
+	Vtk_file << "LOOKUP_TABLE default" << endl;
+	for (int j = 1; j <= ny; j++)
+		for (int i = 1; i <= nx; i++)
+			Vtk_file << ngh[li(nx + 2, i, j)] << endl;
 	Vtk_file << "SCALARS TREE int 1" << endl;
 	Vtk_file << "LOOKUP_TABLE default" << endl;
 	for (int j = 1; j <= ny; j++)

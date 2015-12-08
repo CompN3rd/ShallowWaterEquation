@@ -54,6 +54,7 @@ public:
 private:
 	//input/output arrays on host
 	float* h;
+	float* ngh;
 	float* hu;
 	float* hv;
 	int* t;
@@ -90,7 +91,7 @@ private:
 	void computeBathymetrySources();
 	float eulerTimestep();
 	float getMaxTimestep(float cfl_number = 0.5f);
-	void computeRefinement();
+	void computeInitialRefinement();
 
 	int nx, ny;
 	float dx, dy, dt, g;
