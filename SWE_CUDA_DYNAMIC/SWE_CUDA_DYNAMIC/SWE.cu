@@ -409,26 +409,6 @@ __global__ void eulerTimestep_kernel(int xOff, int yOff, int d, int depth,
 			float currentH = hd[li(width, xOff, yOff)];
 			float currentHu = hud[li(width, xOff, yOff)];
 			float currentHv = hvd[li(width, xOff, yOff)];
-
-			if (xOff <= 513 && xOff >= 510 && yOff <= 513 && yOff >= 510)
-			{
-				printf("(%d, %d)\n", xOff, yOff);
-				printf("currentH: %f\n", currentH);
-
-				printf("Ghd_down: ");
-				float temp = 0.0f;
-				for (int offset = 0; offset < d; offset++)
-					temp += Ghd[li(width - 1, xOff + offset, yOff - 1)];
-				printf("%f\n", temp);
-
-				printf("Fhd_right: %f, Fhd_left: %f\n", Fhd_right, Fhd_left);
-				printf("Fhud_right: %f, Fhud_left: %f\n", Fhud_right, Fhud_left);
-				printf("Fhvd_right: %f, Fhvd_left: %f\n", Fhvd_right, Fhvd_left);
-
-				printf("Ghd_top: %f, Ghd_bottom: %f\n", Ghd_top, Ghd_bottom);
-				printf("Ghud_top: %f, Ghud_bottom: %f\n", Ghud_top, Ghud_bottom);
-				printf("Ghvd_top: %f, Ghvd_bottom: %f\n", Ghvd_top, Ghvd_bottom);
-			}
 			
 			currentH -= dt * ((Fhd_right - Fhd_left) / dx + (Ghd_top - Ghd_bottom) / dy);
 			currentHu -= dt * ((Fhud_right - Fhud_left) / dx + (Ghud_top - Ghud_bottom) / dy); //TODO: add bathymetry
@@ -657,14 +637,14 @@ void SWE::computeInitialRefinement()
 
 	//checkCudaErrors(cudaMemcpy(levelCount, d_levelCount, MAX_DEPTH * sizeof(int), cudaMemcpyDeviceToHost));
 
-	int pixelCount = 0;
-	for (int l = 0; l < MAX_DEPTH; l++)
-	{
-		cout << "Num Cells at level " << l << " : " << levelCount[l] << endl;
-		pixelCount += levelCount[l] * d * d;
-		d /= SUBDIV;
-	}
-	cout << "Num Cells at finest level: " << (nx * ny) - pixelCount << endl;
+	//int pixelCount = 0;
+	//for (int l = 0; l < MAX_DEPTH; l++)
+	//{
+	//	cout << "Num Cells at level " << l << " : " << levelCount[l] << endl;
+	//	pixelCount += levelCount[l] * d * d;
+	//	d /= SUBDIV;
+	//}
+	//cout << "Num Cells at finest level: " << (nx * ny) - pixelCount << endl;
 
 	checkCudaErrors(cudaFree(d_levelCount));
 }

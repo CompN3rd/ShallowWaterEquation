@@ -1,5 +1,5 @@
 <?xml version="1.0"?>
-<session version="2" name="profil.vsprof" hscale="8.80919392594024E-6">
+<session version="2" name="profil.vsprof" hscale="1.4873981097364932E-4">
 <executable file="E:\Dokumente\Visual Studio 2013\Projects\ShallowWaterEquation\SWE_CUDA\x64\Release\SWE_CUDA.exe" timestamp="1449928074621" args="1024 1024 out" profileonstart="true" concurrentkernels="true" apitrace="true" environmentprofiling="false" uvmprofiling="false"><envs></envs><multiProcess type="0" rumMPS="false"/></executable>
 <expert><columnprops></columnprops>
 </expert>
