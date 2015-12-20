@@ -355,7 +355,7 @@ __global__ void eulerTimestepPixel_kernel(int xOff, int yOff, int d, float* hd, 
 	i += xOff;
 	j += yOff;
 
-	if (i >= width - 1 || j >= width - 1)
+	if (i >= width - 1 || j >= height - 1)
 		return;
 
 	const int currentIndexH = li(width, i, j);
@@ -386,19 +386,19 @@ __global__ void eulerTimestep_kernel(int xOff, int yOff, int d, int depth,
 
 	if (treeVal == depth)
 	{
-		Fhd_right = sumLine(Fhd, width - 1, height - 1, xOff + d, yOff, d, false);
+		Fhd_right = sumLine(Fhd, width - 1, height - 1, xOff + d - 1, yOff, d, false);
 		Fhd_left = sumLine(Fhd, width - 1, height - 1, xOff - 1, yOff, d, false);
-		Ghd_top = sumLine(Ghd, width - 1, height - 1, xOff, yOff + d, d, true);
+		Ghd_top = sumLine(Ghd, width - 1, height - 1, xOff, yOff + d - 1, d, true);
 		Ghd_bottom = sumLine(Ghd, width - 1, height - 1, xOff, yOff - 1, d, true);
 
-		Fhud_right = sumLine(Fhud, width - 1, height - 1, xOff + d, yOff, d, false);
+		Fhud_right = sumLine(Fhud, width - 1, height - 1, xOff + d - 1, yOff, d, false);
 		Fhud_left = sumLine(Fhud, width - 1, height - 1, xOff - 1, yOff, d, false);
-		Ghud_top = sumLine(Ghud, width - 1, height - 1, xOff, yOff + d, d, true);
+		Ghud_top = sumLine(Ghud, width - 1, height - 1, xOff, yOff + d - 1, d, true);
 		Ghud_bottom = sumLine(Ghud, width - 1, height - 1, xOff, yOff - 1, d, true);
 
-		Fhvd_right = sumLine(Fhvd, width - 1, height - 1, xOff + d, yOff, d, false);
+		Fhvd_right = sumLine(Fhvd, width - 1, height - 1, xOff + d - 1, yOff, d, false);
 		Fhvd_left = sumLine(Fhvd, width - 1, height - 1, xOff - 1, yOff, d, false);
-		Ghvd_top = sumLine(Ghvd, width - 1, height - 1, xOff, yOff + d, d, true);
+		Ghvd_top = sumLine(Ghvd, width - 1, height - 1, xOff, yOff + d - 1, d, true);
 		Ghvd_bottom = sumLine(Ghvd, width - 1, height - 1, xOff, yOff - 1, d, true);
 	}
 
@@ -409,6 +409,26 @@ __global__ void eulerTimestep_kernel(int xOff, int yOff, int d, int depth,
 			float currentH = hd[li(width, xOff, yOff)];
 			float currentHu = hud[li(width, xOff, yOff)];
 			float currentHv = hvd[li(width, xOff, yOff)];
+
+			if (xOff <= 513 && xOff >= 510 && yOff <= 513 && yOff >= 510)
+			{
+				printf("(%d, %d)\n", xOff, yOff);
+				printf("currentH: %f\n", currentH);
+
+				printf("Ghd_down: ");
+				float temp = 0.0f;
+				for (int offset = 0; offset < d; offset++)
+					temp += Ghd[li(width - 1, xOff + offset, yOff - 1)];
+				printf("%f\n", temp);
+
+				printf("Fhd_right: %f, Fhd_left: %f\n", Fhd_right, Fhd_left);
+				printf("Fhud_right: %f, Fhud_left: %f\n", Fhud_right, Fhud_left);
+				printf("Fhvd_right: %f, Fhvd_left: %f\n", Fhvd_right, Fhvd_left);
+
+				printf("Ghd_top: %f, Ghd_bottom: %f\n", Ghd_top, Ghd_bottom);
+				printf("Ghud_top: %f, Ghud_bottom: %f\n", Ghud_top, Ghud_bottom);
+				printf("Ghvd_top: %f, Ghvd_bottom: %f\n", Ghvd_top, Ghvd_bottom);
+			}
 			
 			currentH -= dt * ((Fhd_right - Fhd_left) / dx + (Ghd_top - Ghd_bottom) / dy);
 			currentHu -= dt * ((Fhud_right - Fhud_left) / dx + (Ghud_top - Ghud_bottom) / dy); //TODO: add bathymetry
@@ -516,9 +536,9 @@ __global__ void computeInitialRefinementFirstRecursionKernel(float* hd, float* h
 	float aH = 0.0f;
 	float aHu = 0.0f;
 	float aHv = 0.0f;
-	for (int xInd = i; xInd < i + SUBDIV; xInd++)
+	for (int xInd = blockIdx.x * d + threadIdx.x; xInd < blockIdx.x * d + d; xInd += BX)
 	{
-		for (int yInd = j; yInd < j + SUBDIV; yInd++)
+		for (int yInd = blockIdx.y * d + threadIdx.y; yInd < blockIdx.y * d + d; yInd += BY)
 		{
 			gradNorm += normGradH[li(width, xInd, yInd)];
 
@@ -620,7 +640,7 @@ void SWE::computeInitialRefinement()
 	dim3 grid(nx / (BX * SUBDIV), ny / (BY * SUBDIV));
 	dim3 block(BX, BY);
 	int d = BX * SUBDIV;
-	cout << "cellLength for level " << MAX_DEPTH - 1 << " : " << d << endl;
+	//cout << "cellLength for level " << MAX_DEPTH - 1 << " : " << d << endl;
 	computeInitialRefinementFirstRecursionKernel << <grid, block >> >(hd, hud, hvd, nghd, td, d_levelCount, d, 0.0f, nx + 2, ny + 2);
 
 	//higher recursive levels
@@ -629,13 +649,13 @@ void SWE::computeInitialRefinement()
 	//	//TODO: compute new nghd
 	//	grid = dim3(grid.x / SUBDIV, grid.y / SUBDIV);
 		d *= SUBDIV;
-		cout << "cellLength for level " << level - 1 << " : " << d << endl;
+	//	cout << "cellLength for level " << level - 1 << " : " << d << endl;
 	//	//each thread computes a cell of size SUBDIV
 	//	dim3 gr(grid.x / block.x, grid.y / block.y);
 	//	computeHigherRecursionKernel << <gr, block >> >(hd, hud, hvd, td, d_levelCount, d, level, nx + 2, ny + 2);
 	}
 
-	checkCudaErrors(cudaMemcpy(levelCount, d_levelCount, MAX_DEPTH * sizeof(int), cudaMemcpyDeviceToHost));
+	//checkCudaErrors(cudaMemcpy(levelCount, d_levelCount, MAX_DEPTH * sizeof(int), cudaMemcpyDeviceToHost));
 
 	int pixelCount = 0;
 	for (int l = 0; l < MAX_DEPTH; l++)

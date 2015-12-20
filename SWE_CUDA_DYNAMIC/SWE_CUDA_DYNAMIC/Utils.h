@@ -1,6 +1,7 @@
 #include <cuda_runtime.h>
 #include <device_launch_parameters.h>
 #include <assert.h>
+#include <algorithm>
 
 #define cucheck_dev(call) \
 {\
@@ -165,23 +166,26 @@ __device__ T sumRectDynamic(T* data, int width, int height, int startX, int star
 
 //--------------------------------------------------------------------------------------------------------------------
 // summation of border values (\sum ([startX, startX + d), startY))
-__device__ float sumLine(float* data, int width, int height, int startX, int startY, int d, bool horizontal)
+inline __device__ float sumLine(float* data, int width, int height, int startX, int startY, int d, bool horizontal)
 {
 	int tid = threadIdx.x + threadIdx.y * blockDim.x;
 	float val = 0.0f;
 
 	if (horizontal)
-		for (int x = tid + startX; x < startX + d; x += blockDim.x * blockDim.y)
+	{
+		for (int x = tid + startX; x < min(startX + d, width); x += blockDim.x * blockDim.y)
 			val += data[li(width, x, startY)];
+	}
 	else
-		for (int y = tid + startY; y < startY + d; y += blockDim.x * blockDim.y)
+	{
+		for (int y = tid + startY; y < min(startY + d, height); y += blockDim.x * blockDim.y)
 			val += data[li(width, startX, y)];
+	}
 
 	//reduce val over block
 	__shared__ float arr[BX * BY];
 	int nt = min(d, BX * BY);
-	if (tid < nt)
-		arr[tid] = val;
+	arr[tid] = val;
 
 	__syncthreads();
 	for (; nt > 1; nt /= 2)

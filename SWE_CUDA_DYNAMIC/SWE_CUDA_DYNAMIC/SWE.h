@@ -30,7 +30,7 @@ typedef enum BoundaryType
 class SWE
 {
 public:
-	SWE(int _nx, int _ny, float _dx, float _dy, float _g = 9.81, int maxRecursion = 2, int blockX = 16, int blockY = 16);
+	SWE(int _nx, int _ny, float _dx, float _dy, float _g = 9.81, int maxRecursion = 2, int blockX = BX, int blockY = BY);
 	~SWE();
 
 	void setInitialValues(float _h, float _u, float _v);
