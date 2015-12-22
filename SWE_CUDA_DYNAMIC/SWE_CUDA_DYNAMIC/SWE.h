@@ -10,12 +10,21 @@
 #include <sstream>
 #include <limits>
 
+//small test set
 #define NX (16 * 64)
 #define NY (16 * 64)
 
 #define BX 16
 #define BY 16
 #define INIT_SUBDIV 4
+
+//large "production" value set
+//#define NX (16 * 512)
+//#define NY (16 * 512)
+//
+//#define BX 16
+//#define BY 16
+//#define INIT_SUBDIV 32
 
 #define MAX_DEPTH 2
 #define SUBDIV 4

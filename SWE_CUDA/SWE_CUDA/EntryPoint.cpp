@@ -39,10 +39,11 @@ int main(int argc, char** argv)
 	cout << "nx: " << atoi(argv[1]) << " ny: " << atoi(argv[2]) << " dx: " << 1.0f / atof(argv[1]) << " dy: " << 1.0f / atof(argv[2]) << endl;
 	swe->setInitialValues(&getWaterHeight, 0.0f, 0.0f);
 	swe->setBathymetry(&getBathymetry);
-	swe->setBoundaryType(WALL, WALL, WALL, WALL);
+	swe->setBoundaryType(OUTFLOW, OUTFLOW, OUTFLOW, OUTFLOW);
 
-	float endSimulation = 0.001f;
-	int numCheckPoints = 1;
+	//float endSimulation = 0.001f;
+	float endSimulation = 0.2f;
+	int numCheckPoints = 9;
 
 	float* checkPt = new float[numCheckPoints + 1];
 	for (int cp = 0; cp <= numCheckPoints; cp++)
@@ -51,8 +52,8 @@ int main(int argc, char** argv)
 	string basename;
 	basename = string(argv[3]);
 
-	//cout << "Writing output file: water level at start" << endl;
-	//swe->writeVTKFile(swe->generateFileName(basename, 0));
+	cout << "Writing output file: water level at start" << endl;
+	swe->writeVTKFile(swe->generateFileName(basename, 0));
 
 	double simulationTime = 0.0;
 	float t = 0.0f;
@@ -64,8 +65,8 @@ int main(int argc, char** argv)
 		double t2 = omp_get_wtime();
 		simulationTime += t2 - t1;
 
-		//cout << "Writing output file: water level at time " << t << endl;
-		//swe->writeVTKFile(swe->generateFileName(basename, i));
+		cout << "Writing output file: water level at time " << t << endl;
+		swe->writeVTKFile(swe->generateFileName(basename, i));
 	}
 
 	checkCudaErrors(cudaDeviceSynchronize());

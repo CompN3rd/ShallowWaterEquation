@@ -368,6 +368,19 @@ __global__ void eulerTimestepPixel_kernel(int xOff, int yOff, int d, float* hd, 
 	hvd[currentIndexH] -= dt*((Fhvd[currentIndex] - Fhvd[leftIndex]) / dx + (Ghvd[currentIndex] - Ghvd[bottomIndex]) / dy + Bvd[currentIndexH] / dy);
 }
 
+__global__ void setSolutionKernel(float* hd, float* hud, float* hvd, float hVal, float huVal, float hvVal, int width, int height, int startX, int startY, int d)
+{
+	int xoff = threadIdx.x + blockIdx.x * blockDim.x;
+	int yoff = threadIdx.y + blockIdx.y * blockDim.y;
+
+	if (xoff >= d || yoff >= d || startX + xoff >= width || startY + yoff >= height)
+		return;
+
+	hd[li(width, startX + xoff, startY + yoff)] = hVal;
+	hud[li(width, startX + xoff, startY + yoff)] = huVal;
+	hvd[li(width, startX + xoff, startY + yoff)] = hvVal;
+}
+
 __global__ void eulerTimestep_kernel(int xOff, int yOff, int d, int depth, 
 	int width, int height, 
 	int* td, float* hd, float* hud, float* hvd, 
@@ -415,9 +428,9 @@ __global__ void eulerTimestep_kernel(int xOff, int yOff, int d, int depth,
 			currentHv -= dt * ((Fhvd_right - Fhvd_left) / dx + (Ghvd_top - Ghvd_bottom) / dy);
 
 			//fill cell with calculated updates
-			fillRectDynamic(hd, width, height, xOff, yOff, d, d, currentH);
-			fillRectDynamic(hud, width, height, xOff, yOff, d, d, currentHu);
-			fillRectDynamic(hvd, width, height, xOff, yOff, d, d, currentHv);
+			dim3 bs(BX, BY);
+			dim3 grid(divUp(min(d, width - xOff), bs.x), divUp(min(d, height - yOff), bs.y));
+			setSolutionKernel << <grid, bs >> >(hd, hud, hvd, currentH, currentHu, currentHv, width, height, xOff, yOff, d);
 		}
 		else if (depth + 1 < MAX_DEPTH)
 		{
@@ -498,6 +511,20 @@ float SWE::getMaxTimestep(float cfl_number)
 	return cfl_number * fminf(dx, dy) / maximumWaveSpeed;
 }
 
+__global__ void setSolutionAndTreeKernel(int* td, float* hd, float* hud, float* hvd, int tVal, float hVal, float huVal, float hvVal, int width, int height, int startX, int startY, int d)
+{
+	int xoff = threadIdx.x + blockIdx.x * blockDim.x;
+	int yoff = threadIdx.y + blockIdx.y * blockDim.y;
+
+	if (xoff >= d || yoff >= d || startX + xoff >= width || startY + yoff >= height)
+		return;
+
+	td[li(width, startX + xoff, startY + yoff)] = tVal;
+	hd[li(width, startX + xoff, startY + yoff)] = hVal;
+	hud[li(width, startX + xoff, startY + yoff)] = huVal;
+	hvd[li(width, startX + xoff, startY + yoff)] = hvVal;
+}
+
 __global__ void computeInitialRefinementFirstRecursionKernel(float* hd, float* hud, float* hvd, float* normGradH, int* td, int* d_levels, int d, float theta_cor, int width, int height)
 {
 	//TODO: compute gradient of b + h and not only of h!
@@ -564,10 +591,9 @@ __global__ void computeInitialRefinementFirstRecursionKernel(float* hd, float* h
 		{
 			//coarsen the grid, write max_depth - 1 to tree and fill solution vector with averaged values
 			atomicAdd(d_levels + (MAX_DEPTH - 1), 1); //increase counter for this cell level
-			fillRectDynamic(td, width, height, i, j, d, d, MAX_DEPTH - 1);
-			fillRectDynamic(hd, width, height, i, j, d, d, avgH[tid]);
-			fillRectDynamic(hud, width, height, i, j, d, d, avgHu[tid]);
-			fillRectDynamic(hvd, width, height, i, j, d, d, avgHv[tid]);
+			dim3 bs(BX, BY);
+			dim3 grid(divUp(min(d, width - i), bs.x), divUp(min(d, height - j), bs.y));
+			setSolutionAndTreeKernel << <grid, bs >> >(td, hd, hud, hvd, MAX_DEPTH - 1, avgH[tid], avgHu[tid], avgHv[tid], width, height, i, j, d);
 		}
 	}
 }
@@ -578,14 +604,22 @@ __global__ void computeHigherRecursionKernel(float* hd, float* hud, float* hvd, 
 	int i = d * (threadIdx.x + blockIdx.x * blockDim.x) + 1;
 	int j = d * (threadIdx.y + blockIdx.y * blockDim.y) + 1;
 
-	//check if all cells in a subdiv x subdiv grid are on the same level as this thread
-	for (int xOff = 0; xOff < SUBDIV; xOff++)
+	//check if all cells in a (subdiv + 1) x (subdiv + 1) grid are on the same level as this thread
+	//this is because we only coarsen, if all cells surrounding this region are at least on the same level as we are (so that we have buffer-cells)
+	for (int xOff = -1; xOff < SUBDIV + 1; xOff++)
 	{
-		for (int yOff = 0; yOff < SUBDIV; yOff++)
+		for (int yOff = -1; yOff < SUBDIV + 1; yOff++)
 		{
+			//except diagonals
+			if ((xOff == -1 && yOff == -1) || (xOff == -1 && yOff == SUBDIV) || (xOff == SUBDIV && yOff == -1) || (xOff == SUBDIV && yOff == SUBDIV))
+				continue;
+
 			//one subcell is on a too fine level to coarsen the grid
 			if (td[li(width, i + xOff * d / SUBDIV, j + yOff * d / SUBDIV)] > level)
 				return;
+
+
+			//interleaved computation of average norm of central gradient:
 		}
 	}
 }
@@ -658,7 +692,7 @@ float SWE::simulate(float tStart, float tEnd)
 	{
 		float tMax = getMaxTimestep();
 		setTimestep(tMax);
-		cout << "Iteration: " << iter << ", Timestep: " << tMax << endl;
+		//cout << "Iteration: " << iter << ", Timestep: " << tMax << endl;
 		setBoundaryLayer();
 		computeBathymetrySources();
 		t += eulerTimestep();
