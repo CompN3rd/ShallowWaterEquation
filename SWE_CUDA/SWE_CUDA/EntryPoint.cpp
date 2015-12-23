@@ -41,9 +41,9 @@ int main(int argc, char** argv)
 	swe->setBathymetry(&getBathymetry);
 	swe->setBoundaryType(OUTFLOW, OUTFLOW, OUTFLOW, OUTFLOW);
 
-	//float endSimulation = 0.001f;
-	float endSimulation = 0.2f;
-	int numCheckPoints = 9;
+	float endSimulation = 0.001f;
+	//float endSimulation = 0.2f;
+	int numCheckPoints = 1;
 
 	float* checkPt = new float[numCheckPoints + 1];
 	for (int cp = 0; cp <= numCheckPoints; cp++)
@@ -53,7 +53,7 @@ int main(int argc, char** argv)
 	basename = string(argv[3]);
 
 	cout << "Writing output file: water level at start" << endl;
-	swe->writeVTKFile(swe->generateFileName(basename, 0));
+	//swe->writeVTKFile(swe->generateFileName(basename, 0));
 
 	double simulationTime = 0.0;
 	float t = 0.0f;
@@ -66,7 +66,7 @@ int main(int argc, char** argv)
 		simulationTime += t2 - t1;
 
 		cout << "Writing output file: water level at time " << t << endl;
-		swe->writeVTKFile(swe->generateFileName(basename, i));
+		//swe->writeVTKFile(swe->generateFileName(basename, i));
 	}
 
 	checkCudaErrors(cudaDeviceSynchronize());

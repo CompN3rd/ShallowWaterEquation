@@ -344,44 +344,21 @@ void SWE::computeBathymetrySources()
 }
 
 //-----------------------------------------------------------------------------------------------------------------------------
-__global__ void eulerTimestepPixel_kernel(int xOff, int yOff, int d, float* hd, float* hud, float* hvd, float* Fhd, float* Fhud, float* Fhvd, float* Ghd, float* Ghud, float* Ghvd, float* Bud, float* Bvd, int width, int height, float dt, float dx, float dy)
+
+__global__ void expandSolutionKernel(float* hd, float* hud, float* hvd, int xOff, int yOff, int d, int width, int height)
 {
-	int i = threadIdx.x + blockIdx.x * blockDim.x;
-	int j = threadIdx.y + blockIdx.y * blockDim.y;
+	const int writeX = xOff + threadIdx.x + blockIdx.x * blockDim.x;
+	const int writeY = yOff + threadIdx.y + blockIdx.y * blockDim.y;
 
-	if (i >= d || j >= d)
-		return;
+	const int readX = xOff + (threadIdx.x + blockIdx.x * blockDim.x) / d; //round down
+	const int readY = yOff + (threadIdx.y + blockIdx.y * blockDim.y) / d;
 
-	i += xOff;
-	j += yOff;
-
-	if (i >= width - 1 || j >= height - 1)
-		return;
-
-	const int currentIndexH = li(width, i, j);
-	const int currentIndex = li(width - 1, i, j);
-	const int leftIndex = li(width - 1, i - 1, j);
-	const int bottomIndex = li(width - 1, i, j - 1);
-
-	hd[currentIndexH] -= dt*((Fhd[currentIndex] - Fhd[leftIndex]) / dx + (Ghd[currentIndex] - Ghd[bottomIndex]) / dy);
-	hud[currentIndexH] -= dt*((Fhud[currentIndex] - Fhud[leftIndex]) / dx + (Ghud[currentIndex] - Ghud[bottomIndex]) / dy + Bud[currentIndexH] / dx);
-	hvd[currentIndexH] -= dt*((Fhvd[currentIndex] - Fhvd[leftIndex]) / dx + (Ghvd[currentIndex] - Ghvd[bottomIndex]) / dy + Bvd[currentIndexH] / dy);
+	hd[li(width, writeX, writeY)] = hd[li(width, readX, readY)];
+	hud[li(width, writeX, writeY)] = hud[li(width, readX, readY)];
+	hvd[li(width, writeX, writeY)] = hvd[li(width, readX, readY)];
 }
 
-__global__ void setSolutionKernel(float* hd, float* hud, float* hvd, float hVal, float huVal, float hvVal, int width, int height, int startX, int startY, int d)
-{
-	int xoff = threadIdx.x + blockIdx.x * blockDim.x;
-	int yoff = threadIdx.y + blockIdx.y * blockDim.y;
-
-	if (xoff >= d || yoff >= d || startX + xoff >= width || startY + yoff >= height)
-		return;
-
-	hd[li(width, startX + xoff, startY + yoff)] = hVal;
-	hud[li(width, startX + xoff, startY + yoff)] = huVal;
-	hvd[li(width, startX + xoff, startY + yoff)] = hvVal;
-}
-
-__global__ void eulerTimestep_kernel(int xOff, int yOff, int d, int depth, 
+__global__ void eulerTimestepKernel(int xOff, int yOff, int d, int depth, 
 	int width, int height, 
 	int* td, float* hd, float* hud, float* hvd, 
 	float* Fhd, float* Fhud, float* Fhvd, 
@@ -389,60 +366,153 @@ __global__ void eulerTimestep_kernel(int xOff, int yOff, int d, int depth,
 	float* Bud, float* Bvd, 
 	float dt, float dx, float dy)
 {
-	xOff += blockIdx.x * d;
-	yOff += blockIdx.y * d;
-	int treeVal = td[li(width, xOff, yOff)];
+	//compute global starting point of cell
+	xOff += (threadIdx.x + blockIdx.x * blockDim.x) * d;
+	yOff += (threadIdx.y + blockIdx.y * blockDim.y) * d;
+	const int tid = li(blockDim.x, threadIdx.x, threadIdx.y);
 
-	float Fhd_right, Fhd_left, Ghd_top, Ghd_bottom,
-		Fhud_right, Fhud_left, Ghud_top, Ghud_bottom,
-		Fhvd_right, Fhvd_left, Ghvd_top, Ghvd_bottom;
+	__shared__ int levelSum[BX * BY];
 
-	if (treeVal == depth)
+	//are we a leaf?
+	if (depth == MAX_DEPTH)
 	{
-		Fhd_right = sumLine(Fhd, width - 1, height - 1, xOff + d - 1, yOff, d, false);
-		Fhd_left = sumLine(Fhd, width - 1, height - 1, xOff - 1, yOff, d, false);
-		Ghd_top = sumLine(Ghd, width - 1, height - 1, xOff, yOff + d - 1, d, true);
-		Ghd_bottom = sumLine(Ghd, width - 1, height - 1, xOff, yOff - 1, d, true);
+		//minimal cell-length (pixel)
+		if (xOff >= width - 1 || yOff >= height - 1)
+			return;
 
-		Fhud_right = sumLine(Fhud, width - 1, height - 1, xOff + d - 1, yOff, d, false);
-		Fhud_left = sumLine(Fhud, width - 1, height - 1, xOff - 1, yOff, d, false);
-		Ghud_top = sumLine(Ghud, width - 1, height - 1, xOff, yOff + d - 1, d, true);
-		Ghud_bottom = sumLine(Ghud, width - 1, height - 1, xOff, yOff - 1, d, true);
+		const int currentIndexH = li(width, xOff, yOff);
+		const int currentIndex = li(width - 1, xOff, yOff);
+		const int leftIndex = li(width - 1, xOff - 1, yOff);
+		const int bottomIndex = li(width - 1, xOff, yOff - 1);
 
-		Fhvd_right = sumLine(Fhvd, width - 1, height - 1, xOff + d - 1, yOff, d, false);
-		Fhvd_left = sumLine(Fhvd, width - 1, height - 1, xOff - 1, yOff, d, false);
-		Ghvd_top = sumLine(Ghvd, width - 1, height - 1, xOff, yOff + d - 1, d, true);
-		Ghvd_bottom = sumLine(Ghvd, width - 1, height - 1, xOff, yOff - 1, d, true);
+		hd[currentIndexH] -= dt * ((Fhd[currentIndex] - Fhd[leftIndex]) / dx + (Ghd[currentIndex] - Ghd[bottomIndex]) / dy);
+		hud[currentIndexH] -= dt * ((Fhud[currentIndex] - Fhud[leftIndex]) / dx + (Ghud[currentIndex] - Ghud[bottomIndex]) / dy + Bud[currentIndexH] / dx);
+		hvd[currentIndexH] -= dt * ((Fhvd[currentIndex] - Fhvd[leftIndex]) / dx + (Ghvd[currentIndex] - Ghvd[bottomIndex]) / dy + Bvd[currentIndexH] / dy);
 	}
-
-	if (threadIdx.x == 0 && threadIdx.y == 0)
+	else
 	{
-		if (treeVal == depth)
+		//each thread reads it's level into shared memory
+		levelSum[tid] = td[li(width, xOff, yOff)];
+		__syncthreads();
+		//reduce
+		for (int nt = BX * BY; nt > 1; nt /= 2)
+		{
+			if (tid < nt / 2)
+			{
+				levelSum[tid] += levelSum[tid + nt / 2];
+			}
+			__syncthreads();
+		}
+		
+		//each thread reads the result
+		if (levelSum[0] != BX * BY * depth)
+		{
+			//we have to refine this block, thread(0, 0) will do this
+			if (tid == 0)
+			{
+				dim3 block(BX, BY);
+				dim3 grid(SUBDIV, SUBDIV);
+				eulerTimestepKernel << <grid, block >> >(xOff, yOff, d / SUBDIV, depth + 1, width, height, td, hd, hud, hvd, Fhd, Fhud, Fhvd, Ghd, Ghud, Ghvd, Bud, Bvd, dt, dx / SUBDIV, dy / SUBDIV);
+			}
+		}
+		else
 		{
 			float currentH = hd[li(width, xOff, yOff)];
 			float currentHu = hud[li(width, xOff, yOff)];
 			float currentHv = hvd[li(width, xOff, yOff)];
-			
-			currentH -= dt * ((Fhd_right - Fhd_left) / dx + (Ghd_top - Ghd_bottom) / dy);
-			currentHu -= dt * ((Fhud_right - Fhud_left) / dx + (Ghud_top - Ghud_bottom) / dy); //TODO: add bathymetry
-			currentHv -= dt * ((Fhvd_right - Fhvd_left) / dx + (Ghvd_top - Ghvd_bottom) / dy);
 
-			//fill cell with calculated updates
-			dim3 bs(BX, BY);
-			dim3 grid(divUp(min(d, width - xOff), bs.x), divUp(min(d, height - yOff), bs.y));
-			setSolutionKernel << <grid, bs >> >(hd, hud, hvd, currentH, currentHu, currentHv, width, height, xOff, yOff, d);
-		}
-		else if (depth + 1 < MAX_DEPTH)
-		{
-			//subdivide recursively
-			dim3 bs(BX, BY), grid(SUBDIV, SUBDIV);
-			eulerTimestep_kernel << < grid, bs >> > (xOff, yOff, d / SUBDIV, depth + 1, width, height, td, hd, hud, hvd, Fhd, Fhud, Fhvd, Ghd, Ghud, Ghvd, Bud, Bvd, dt, dx / SUBDIV, dy / SUBDIV);
-		}
-		else
-		{
-			//leaf, per pixel kernel
-			dim3 bs(BX, BY), grid(divUp(d, BX), divUp(d, BY));
-			eulerTimestepPixel_kernel << <grid, bs >> >(xOff, yOff, d, hd, hud, hvd, Fhd, Fhud, Fhvd, Ghd, Ghud, Ghvd, Bud, Bvd, width, height, dt, dx / (SUBDIV * BX), dy / (SUBDIV * BY));
+			//we can use this depth for the whole thread-block
+			//note that we know, that all cells (threads) in this block have the same depth as we do and use this for faster calculation of fluxes
+			float  Fhd_right, Fhd_left, Ghd_top, Ghd_bottom,
+				Fhud_right, Fhud_left, Ghud_top, Ghud_bottom,
+				Fhvd_right, Fhvd_left, Ghvd_top, Ghvd_bottom;
+
+			Fhd_left = d * Fhd[li(width - 1, xOff - 1, yOff)];
+			Fhd_right = d * Fhd[li(width - 1, xOff + d - 1, yOff)];
+			Fhud_left = d * Fhud[li(width - 1, xOff - 1, yOff)];
+			Fhud_right = d * Fhud[li(width - 1, xOff + d - 1, yOff)];
+			Fhvd_left = d * Fhvd[li(width - 1, xOff - 1, yOff)];
+			Fhvd_right = d * Fhvd[li(width - 1, xOff + d - 1, yOff)];
+			Ghd_bottom = d * Ghd[li(width - 1, xOff, yOff - 1)];
+			Ghd_top = d * Ghd[li(width - 1, xOff, yOff + d - 1)];
+			Ghud_bottom = d * Ghud[li(width - 1, xOff, yOff - 1)];
+			Ghud_top = d * Ghud[li(width - 1, xOff, yOff + d - 1)];
+			Ghvd_bottom = d * Ghvd[li(width - 1, xOff, yOff - 1)];
+			Ghvd_top = d * Ghvd[li(width - 1, xOff, yOff + d - 1)];
+
+
+			//overwrite with specific values:
+			if (threadIdx.x == 0) //left border
+			{
+				Fhd_left = 0.0f;
+				Fhud_left = 0.0f;
+				Fhvd_left = 0.0f;
+
+				for (int i = 0; i < SUBDIV; i++)
+				{
+					Fhd_left += d / SUBDIV * Fhd[li(width - 1, xOff - 1, yOff + i * d / SUBDIV)];
+					Fhud_left += d / SUBDIV * Fhud[li(width - 1, xOff - 1, yOff + i * d / SUBDIV)];
+					Fhvd_left += d / SUBDIV * Fhvd[li(width - 1, xOff - 1, yOff + i * d / SUBDIV)];
+				}
+			}
+			if (threadIdx.x == blockDim.x - 1) //right border
+			{
+				Fhd_right = 0.0f;
+				Fhud_right = 0.0f;
+				Fhvd_right = 0.0f;
+				
+				for (int i = 0; i < SUBDIV; i++)
+				{
+					Fhd_right += d / SUBDIV * Fhd[li(width - 1, xOff + d - 1, yOff + i * d / SUBDIV)];
+					Fhud_right += d / SUBDIV * Fhud[li(width - 1, xOff + d - 1, yOff + i * d / SUBDIV)];
+					Fhvd_right += d / SUBDIV * Fhvd[li(width - 1, xOff + d - 1, yOff + i * d / SUBDIV)];
+				}
+			}
+
+			if (threadIdx.y == 0) //bottom border
+			{
+				Ghd_bottom = 0.0f;
+				Ghud_bottom = 0.0f;
+				Ghvd_bottom = 0.0f;
+
+				for (int i = 0; i < SUBDIV; i++)
+				{
+					Ghd_bottom = d / SUBDIV * Ghd[li(width - 1, xOff + i * d / SUBDIV, yOff - 1)];
+					Ghud_bottom = d / SUBDIV * Ghud[li(width - 1, xOff + i * d / SUBDIV, yOff - 1)];
+					Ghvd_bottom = d / SUBDIV * Ghvd[li(width - 1, xOff + i * d / SUBDIV, yOff - 1)];
+				}
+			}
+			if (threadIdx.y == blockDim.y - 1) //top border
+			{
+				Ghd_top = 0.0f;
+				Ghud_top = 0.0f;
+				Ghvd_top = 0.0f;
+
+				for (int i = 0; i < SUBDIV; i++)
+				{
+					Ghd_top = d / SUBDIV * Ghd[li(width - 1, xOff + i * d / SUBDIV, yOff + d - 1)];
+					Ghud_top = d / SUBDIV * Ghud[li(width - 1, xOff + i * d / SUBDIV, yOff + d - 1)];
+					Ghvd_top = d / SUBDIV * Ghvd[li(width - 1, xOff + i * d / SUBDIV, yOff + d - 1)];
+				}
+			}
+			
+			//use these values to update current solution
+			currentH -= dt * ((Fhd_right - Fhd_left) / dx + (Ghd_top - Ghd_bottom) / dy);
+			currentHu -= dt * ((Fhud_right - Fhud_left) / dx + (Ghud_top - Ghud_bottom) / dy /*+ Bud[currentIndexH] / dx*/); //TODO: add bathymetry term
+			currentHv -= dt * ((Fhvd_right - Fhvd_left) / dx + (Ghvd_top - Ghvd_bottom) / dy /*+ Bvd[currentIndexH] / dy*/);
+
+			//write solution back
+			hd[li(width, xOff, yOff)] = currentH;
+			hud[li(width, xOff, yOff)] = currentHu;
+			hvd[li(width, xOff, yOff)] = currentHv;
+
+			//expand solution to whole region
+			if (tid == 0)
+			{
+				dim3 block(BX, BY);
+				dim3 grid(d, d);
+				expandSolutionKernel << <grid, block >> >(hd, hud, hvd, xOff, yOff, d, width, height);
+			}
 		}
 	}
 }
@@ -453,13 +523,13 @@ float SWE::eulerTimestep()
 
 	dim3 grid(INIT_SUBDIV, INIT_SUBDIV);
 	dim3 block(BX, BY);
-	eulerTimestep_kernel << <grid, block >> >(1, 1, nx / INIT_SUBDIV, 0, 
+	eulerTimestepKernel << <grid, block >> >(1, 1, nx / (INIT_SUBDIV * BX), 0, 
 		nx + 2, ny + 2, 
 		td, hd, hud, hvd, 
 		Fhd, Fhud, Fhvd, 
 		Ghd, Ghud, Ghvd, 
 		Bud, Bvd, 
-		dt, dx * nx / INIT_SUBDIV, dy * nx / INIT_SUBDIV);
+		dt, dx * nx / (INIT_SUBDIV * BX), dy * ny / (INIT_SUBDIV * BY));
 
 	return dt;
 }
