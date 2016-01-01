@@ -399,13 +399,13 @@ __global__ void eulerTimestepKernel(int xOff, int yOff, int d, int depth,
 		{
 			if (tid < nt / 2)
 			{
-				levelSum[tid] += levelSum[tid + nt / 2];
+				levelSum[tid] += levelSum[tid + nt / 2]; //TODO: maximum here
 			}
 			__syncthreads();
 		}
 		
 		//each thread reads the result
-		if (levelSum[0] != BX * BY * depth)
+		if (levelSum[0] != BX * BY * depth) //TODO: check logic in these if-cases
 		{
 			//we have to refine this block, thread(0, 0) will do this
 			if (tid == 0)
@@ -477,9 +477,9 @@ __global__ void eulerTimestepKernel(int xOff, int yOff, int d, int depth,
 
 				for (int i = 0; i < SUBDIV; i++)
 				{
-					Ghd_bottom = d / SUBDIV * Ghd[li(width - 1, xOff + i * d / SUBDIV, yOff - 1)];
-					Ghud_bottom = d / SUBDIV * Ghud[li(width - 1, xOff + i * d / SUBDIV, yOff - 1)];
-					Ghvd_bottom = d / SUBDIV * Ghvd[li(width - 1, xOff + i * d / SUBDIV, yOff - 1)];
+					Ghd_bottom += d / SUBDIV * Ghd[li(width - 1, xOff + i * d / SUBDIV, yOff - 1)];
+					Ghud_bottom += d / SUBDIV * Ghud[li(width - 1, xOff + i * d / SUBDIV, yOff - 1)];
+					Ghvd_bottom += d / SUBDIV * Ghvd[li(width - 1, xOff + i * d / SUBDIV, yOff - 1)];
 				}
 			}
 			if (threadIdx.y == blockDim.y - 1) //top border
@@ -490,9 +490,9 @@ __global__ void eulerTimestepKernel(int xOff, int yOff, int d, int depth,
 
 				for (int i = 0; i < SUBDIV; i++)
 				{
-					Ghd_top = d / SUBDIV * Ghd[li(width - 1, xOff + i * d / SUBDIV, yOff + d - 1)];
-					Ghud_top = d / SUBDIV * Ghud[li(width - 1, xOff + i * d / SUBDIV, yOff + d - 1)];
-					Ghvd_top = d / SUBDIV * Ghvd[li(width - 1, xOff + i * d / SUBDIV, yOff + d - 1)];
+					Ghd_top += d / SUBDIV * Ghd[li(width - 1, xOff + i * d / SUBDIV, yOff + d - 1)];
+					Ghud_top += d / SUBDIV * Ghud[li(width - 1, xOff + i * d / SUBDIV, yOff + d - 1)];
+					Ghvd_top += d / SUBDIV * Ghvd[li(width - 1, xOff + i * d / SUBDIV, yOff + d - 1)];
 				}
 			}
 			
@@ -506,11 +506,14 @@ __global__ void eulerTimestepKernel(int xOff, int yOff, int d, int depth,
 			hud[li(width, xOff, yOff)] = currentHu;
 			hvd[li(width, xOff, yOff)] = currentHv;
 
+			//important! synchronize global writes
+			__syncthreads();
+
 			//expand solution to whole region
 			if (tid == 0)
 			{
 				dim3 block(BX, BY);
-				dim3 grid(d, d);
+				dim3 grid(d, d); 
 				expandSolutionKernel << <grid, block >> >(hd, hud, hvd, xOff, yOff, d, width, height);
 			}
 		}
@@ -595,103 +598,56 @@ __global__ void setSolutionAndTreeKernel(int* td, float* hd, float* hud, float* 
 	hvd[li(width, startX + xoff, startY + yoff)] = hvVal;
 }
 
-__global__ void computeInitialRefinementFirstRecursionKernel(float* hd, float* hud, float* hvd, float* normGradH, int* td, int* d_levels, int d, float theta_cor, int width, int height)
+__global__ void computeInitialRefinementKernel(float* hd, float* hud, float* hvd, float* normGradH, int* td, int d, int* d_levels, int depth, float theta_cor, int width, int height)
 {
-	//TODO: compute gradient of b + h and not only of h!
+	int i = (threadIdx.x + blockIdx.x * blockDim.x) * d + 1;
+	int j = (threadIdx.y + blockIdx.y * blockDim.y) * d + 1;
 
-	//compute global starting point
-	const int i = threadIdx.x * SUBDIV + blockIdx.x * d + 1;
-	const int j = threadIdx.y * SUBDIV + blockIdx.y * d + 1;
-	const int tid = threadIdx.x + threadIdx.y * blockDim.x;
+	//TODO: use grad(b+h)
 
-	__shared__ float gradHNorm[BX * BY];
-	__shared__ float avgH[BX * BY];
-	__shared__ float avgHu[BX * BY];
-	__shared__ float avgHv[BX * BY];
+	float ngH = 0.0f;
+	float cH = 0.0f;
+	float cHu = 0.0f;
+	float cHv = 0.0f;
+	int levels = 0;
+	//also capture the neighbors:
+	int nLevels = 0;
 
-	float gradNorm = 0.0f;
-	float aH = 0.0f;
-	float aHu = 0.0f;
-	float aHv = 0.0f;
-	for (int xInd = blockIdx.x * d + threadIdx.x; xInd < blockIdx.x * d + d; xInd += BX)
+	for (int xOff = 0; xOff < SUBDIV; xOff++)
 	{
-		for (int yInd = blockIdx.y * d + threadIdx.y; yInd < blockIdx.y * d + d; yInd += BY)
+		for (int yOff = 0; yOff < SUBDIV; yOff++)
 		{
-			gradNorm += normGradH[li(width, xInd, yInd)];
+			levels += td[li(width, i + xOff * d / SUBDIV, j + yOff * d / SUBDIV)];
+			ngH += normGradH[li(width, i + xOff * d / SUBDIV, j + yOff * d / SUBDIV)];
+			cH += hd[li(width, i + xOff * d / SUBDIV, j + yOff * d / SUBDIV)];
+			cHu += hud[li(width, i + xOff * d / SUBDIV, j + yOff * d / SUBDIV)];
+			cHv += hvd[li(width, i + xOff * d / SUBDIV, j + yOff * d / SUBDIV)];
 
-			aH += hd[li(width, xInd, yInd)];
-			aHu += hud[li(width, xInd, yInd)];
-			aHv += hvd[li(width, xInd, yInd)];
+			if (xOff == 0) //left neighbor
+				nLevels += td[li(width, i - 1, j + yOff * d / SUBDIV)];
+			if (xOff == SUBDIV - 1) //right neighbor
+				nLevels += td[li(width, i + d, j + yOff * d / SUBDIV)];
+			if (yOff == 0) //bottom neighbor
+				nLevels += td[li(width, i + xOff * d / SUBDIV, j - 1)];
+			if (yOff == SUBDIV - 1) //top neighbor
+				nLevels += td[li(width, i + xOff * d / SUBDIV, j + d)];
 		}
 	}
-	gradHNorm[tid] = gradNorm;
-	avgH[tid] = aH;
-	avgHu[tid] = aHu;
-	avgHv[tid] = aHv;
-	__syncthreads();
 
-	//block reduce the gradHNorm and the average cell values:
-	for (int nt = BX * BY; nt > 1; nt /= 2)
+	//if all are on the same level and the neighbors are also on our level (or already on a higher level) and the averaged norm is below the threshold
+	if (levels <= SUBDIV * SUBDIV * (depth + 1) && nLevels <= 4 * SUBDIV * (depth + 1) && ngH / (SUBDIV * SUBDIV) <= theta_cor)
 	{
-		if (tid < nt / 2)
-		{
-			gradHNorm[tid] += gradHNorm[tid + nt / 2];
-			avgH[tid] += avgH[tid + nt / 2];
-			avgHu[tid] += avgHu[tid + nt / 2];
-			avgHv[tid] += avgHv[tid + nt / 2];
-		}
-		__syncthreads();
+		//average solution and write depth to tree
+		fillRectLoop(hd, width, height, i, j, d, d, cH / (SUBDIV * SUBDIV));
+		fillRectLoop(hud, width, height, i, j, d, d, cHu / (SUBDIV * SUBDIV));
+		fillRectLoop(hvd, width, height, i, j, d, d, cHv / (SUBDIV * SUBDIV));
+		fillRectLoop(td, width, height, i, j, d, d, depth);
+
+		//update statistic counter
+		atomicAdd(d_levels + (depth + 1), -SUBDIV * SUBDIV); //subtract subdiv^2 cells from smaller level
+		atomicAdd(d_levels + depth, 1); //add 1 to current cell level
 	}
-
-	gradHNorm[tid] /= (BX * BY * SUBDIV * SUBDIV);
-	avgH[tid] /= (BX * BY * SUBDIV * SUBDIV);
-	avgHu[tid] /= (BX * BY * SUBDIV * SUBDIV);
-	avgHv[tid] /= (BX * BY * SUBDIV * SUBDIV);
-
-	//thread with tid 0 now holds the average water gradient and averaged cell values
-	if (tid == 0)
-	{
-		//decide the content of the tree and the solution vector
-		if (gradHNorm[tid] > theta_cor)
-		{
-			//no recoarsening, leave everything as is and write max_depth to tree
-			fillRectDynamic(td, width, height, i, j, d, d, MAX_DEPTH);
-		}
-		else
-		{
-			//coarsen the grid, write max_depth - 1 to tree and fill solution vector with averaged values
-			atomicAdd(d_levels + (MAX_DEPTH - 1), 1); //increase counter for this cell level
-			dim3 bs(BX, BY);
-			dim3 grid(divUp(min(d, width - i), bs.x), divUp(min(d, height - j), bs.y));
-			setSolutionAndTreeKernel << <grid, bs >> >(td, hd, hud, hvd, MAX_DEPTH - 1, avgH[tid], avgHu[tid], avgHv[tid], width, height, i, j, d);
-		}
-	}
-}
-
-__global__ void computeHigherRecursionKernel(float* hd, float* hud, float* hvd, float* normGradH, int* td, int* d_levels, int d, int level, int width, int height)
-{
-	//TODO: compute gradient of b + h and not only of h!
-	int i = d * (threadIdx.x + blockIdx.x * blockDim.x) + 1;
-	int j = d * (threadIdx.y + blockIdx.y * blockDim.y) + 1;
-
-	//check if all cells in a (subdiv + 1) x (subdiv + 1) grid are on the same level as this thread
-	//this is because we only coarsen, if all cells surrounding this region are at least on the same level as we are (so that we have buffer-cells)
-	for (int xOff = -1; xOff < SUBDIV + 1; xOff++)
-	{
-		for (int yOff = -1; yOff < SUBDIV + 1; yOff++)
-		{
-			//except diagonals
-			if ((xOff == -1 && yOff == -1) || (xOff == -1 && yOff == SUBDIV) || (xOff == SUBDIV && yOff == -1) || (xOff == SUBDIV && yOff == SUBDIV))
-				continue;
-
-			//one subcell is on a too fine level to coarsen the grid
-			if (td[li(width, i + xOff * d / SUBDIV, j + yOff * d / SUBDIV)] > level)
-				return;
-
-
-			//interleaved computation of average norm of central gradient:
-		}
-	}
+	//else do nothing
 }
 
 __global__ void computeNormOfGradient(float* hd, float* normGradH, int width, int height)
@@ -711,6 +667,7 @@ __global__ void computeNormOfGradient(float* hd, float* normGradH, int width, in
 
 void SWE::computeInitialRefinement()
 {
+	setTree(MAX_DEPTH); //reset the tree to finest resolution
 	int levelCount[MAX_DEPTH]; //number of cells for each level < maxLevel
 	int* d_levelCount;
 	checkCudaErrors(cudaMalloc(&d_levelCount, MAX_DEPTH * sizeof(int)));
@@ -720,35 +677,10 @@ void SWE::computeInitialRefinement()
 	dim3 normGrid(divUp(nx + 2, normBlock.x), divUp(ny + 2, normBlock.y));
 	computeNormOfGradient << <normGrid, normBlock >> >(hd, nghd, nx + 2, ny + 2);
 
-	//each block computes a cell of size BX * SUBDIV
-	dim3 grid(nx / (BX * SUBDIV), ny / (BY * SUBDIV));
+	dim3 grid(nx / (SUBDIV * BX), ny / (SUBDIV * BY));
 	dim3 block(BX, BY);
-	int d = BX * SUBDIV;
-	//cout << "cellLength for level " << MAX_DEPTH - 1 << " : " << d << endl;
-	computeInitialRefinementFirstRecursionKernel << <grid, block >> >(hd, hud, hvd, nghd, td, d_levelCount, d, 0.0f, nx + 2, ny + 2);
-
-	//higher recursive levels
-	for (int level = MAX_DEPTH - 1; level > 0; level--)
-	{
-	//	//TODO: compute new nghd
-	//	grid = dim3(grid.x / SUBDIV, grid.y / SUBDIV);
-		d *= SUBDIV;
-	//	cout << "cellLength for level " << level - 1 << " : " << d << endl;
-	//	//each thread computes a cell of size SUBDIV
-	//	dim3 gr(grid.x / block.x, grid.y / block.y);
-	//	computeHigherRecursionKernel << <gr, block >> >(hd, hud, hvd, td, d_levelCount, d, level, nx + 2, ny + 2);
-	}
-
-	//checkCudaErrors(cudaMemcpy(levelCount, d_levelCount, MAX_DEPTH * sizeof(int), cudaMemcpyDeviceToHost));
-
-	//int pixelCount = 0;
-	//for (int l = 0; l < MAX_DEPTH; l++)
-	//{
-	//	cout << "Num Cells at level " << l << " : " << levelCount[l] << endl;
-	//	pixelCount += levelCount[l] * d * d;
-	//	d /= SUBDIV;
-	//}
-	//cout << "Num Cells at finest level: " << (nx * ny) - pixelCount << endl;
+	int d = SUBDIV;
+	computeInitialRefinementKernel << <grid, block >> >(hd, hud, hvd, nghd, td, d, d_levelCount, MAX_DEPTH - 1, 0.0f, nx + 2, ny + 2);
 
 	checkCudaErrors(cudaFree(d_levelCount));
 }
@@ -762,12 +694,16 @@ float SWE::simulate(float tStart, float tEnd)
 	{
 		float tMax = getMaxTimestep();
 		setTimestep(tMax);
-		//cout << "Iteration: " << iter << ", Timestep: " << tMax << endl;
+		cout << "Iteration: " << iter << ", Timestep: " << tMax << endl;
 		setBoundaryLayer();
 		computeBathymetrySources();
 		t += eulerTimestep();
 		computeInitialRefinement();
 		iter++;
+
+		//debug output
+		//cout << "Writing file for iteration: " << iter << endl;
+		//writeVTKFile(generateFileName("iter", iter));
 	} while (t < tEnd);
 
 	return t;

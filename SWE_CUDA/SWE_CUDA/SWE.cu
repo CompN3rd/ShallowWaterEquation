@@ -453,7 +453,7 @@ float SWE::simulate(float tStart, float tEnd)
 	do
 	{
 		float tMax = getMaxTimestep();
-		//cout << "Iteration: " << iter << ", Timestep: " << tMax << endl;
+		cout << "Iteration: " << iter << ", Timestep: " << tMax << endl;
 		setTimestep(tMax);
 		setBoundaryLayer();
 		computeBathymetrySources();
