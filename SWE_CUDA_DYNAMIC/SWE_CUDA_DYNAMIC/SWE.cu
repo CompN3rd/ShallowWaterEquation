@@ -641,7 +641,26 @@ __global__ void computeInitialRefinementKernel(float* hd, float* hud, float* hvd
 		fillRectLoop(hd, width, height, i, j, d, d, cH / (SUBDIV * SUBDIV));
 		fillRectLoop(hud, width, height, i, j, d, d, cHu / (SUBDIV * SUBDIV));
 		fillRectLoop(hvd, width, height, i, j, d, d, cHv / (SUBDIV * SUBDIV));
-		fillRectLoop(td, width, height, i, j, d, d, depth);
+
+		//also capture boundary values
+		if (i == 1 && j == 1)
+			fillRectLoop(td, width, height, i - 1, j - 1, d + 1, d + 1, depth);
+		else if (i == 1 && j == height - d - 1)
+			fillRectLoop(td, width, height, i - 1, j, d + 1, d + 1, depth);
+		else if (i == width - d - 1 && j == 1)
+			fillRectLoop(td, width, height, i, j - 1, d + 1, d + 1, depth);
+		else if (i == width - d - 1 && j == height - d - 1)
+			fillRectLoop(td, width, height, i, j, d + 1, d + 1, depth);
+		else if (i == 1)
+			fillRectLoop(td, width, height, i - 1, j, d + 1, d, depth);
+		else if (i == width - d - 1)
+			fillRectLoop(td, width, height, i, j, d + 1, d, depth);
+		else if (j == 1)
+			fillRectLoop(td, width, height, i, j - 1, d, d + 1, depth);
+		else if (j == height - d - 1)
+			fillRectLoop(td, width, height, i, j, d, d + 1, depth);
+		else
+			fillRectLoop(td, width, height, i, j, d, d, depth);
 
 		//update statistic counter
 		atomicAdd(d_levels + (depth + 1), -SUBDIV * SUBDIV); //subtract subdiv^2 cells from smaller level
@@ -681,6 +700,11 @@ void SWE::computeInitialRefinement()
 	dim3 block(BX, BY);
 	int d = SUBDIV;
 	computeInitialRefinementKernel << <grid, block >> >(hd, hud, hvd, nghd, td, d, d_levelCount, MAX_DEPTH - 1, 0.0f, nx + 2, ny + 2);
+
+	d *= SUBDIV;
+	grid.x /= SUBDIV;
+	grid.y /= SUBDIV;
+	computeInitialRefinementKernel << <grid, block >> >(hd, hud, hvd, nghd, td, d, d_levelCount, MAX_DEPTH - 2, 0.0f, nx + 2, ny + 2);
 
 	checkCudaErrors(cudaFree(d_levelCount));
 }
